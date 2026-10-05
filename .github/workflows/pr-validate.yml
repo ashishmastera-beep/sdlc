@@ -1,0 +1,123 @@
+name: pr-validate
+
+# Required checks on every PR to main: jira-key, static, sf-validate.
+# sf-validate deploys check-only to the QA org with RunLocalTests and enforces coverage on changed classes.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited, labeled, unlabeled]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jira-key:
+    name: jira-key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: PR title carries a Jira key (or is a labelled pipeline-only change)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.pull_request.title }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ "$TITLE" =~ ^SDLC-[0-9]+:\  ]]; then echo "Jira key found in title"; exit 0; fi
+          if [[ ",$LABELS," == *",no-jira,"* ]]; then
+            touched="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename' | grep -E '^(force-app|specs)/' || true)"
+            if [[ -z "$touched" ]]; then echo "no-jira label on a pipeline-only change"; exit 0; fi
+            echo "::error::'no-jira' is only allowed when the PR does not touch force-app/ or specs/:"; echo "$touched"; exit 1
+          fi
+          echo "::error::PR title must start with the Jira key, e.g. 'SDLC-12: Add contract end date'"; exit 1
+
+  static:
+    name: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: LWC lint
+        run: npm run lint
+      - name: LWC Jest
+        run: npm run test:unit:coverage
+      - name: Pipeline script tests
+        run: bash scripts/jira/test/run.sh
+      - id: src
+        run: bash scripts/sf/has-source.sh
+      - name: Install Salesforce CLI and Code Analyzer
+        if: steps.src.outputs.has_source == 'true'
+        run: |
+          npm install --global "@salesforce/cli@$(jq -r .salesforce.cliVersion config/pipeline.json)"
+          sf plugins install "code-analyzer@$(jq -r .salesforce.codeAnalyzerVersion config/pipeline.json)"
+      - name: Code Analyzer
+        if: steps.src.outputs.has_source == 'true'
+        run: |
+          sf code-analyzer run --workspace force-app \
+            --severity-threshold "$(jq -r .salesforce.codeAnalyzerSeverityThreshold config/pipeline.json)" \
+            --output-file code-analyzer.html --output-file code-analyzer.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.src.outputs.has_source == 'true'
+        with:
+          name: code-analyzer
+          path: code-analyzer.*
+          if-no-files-found: ignore
+
+  sf-validate:
+    name: sf-validate
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: qa
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - id: src
+        run: bash scripts/sf/has-source.sh
+      - name: Nothing to validate yet
+        if: steps.src.outputs.has_source != 'true'
+        run: echo "force-app has no metadata yet; skipping org validation." >> "$GITHUB_STEP_SUMMARY"
+      - name: Install Salesforce CLI
+        if: steps.src.outputs.has_source == 'true'
+        run: npm install --global "@salesforce/cli@$(jq -r .salesforce.cliVersion config/pipeline.json)"
+      - name: Log in to QA
+        if: steps.src.outputs.has_source == 'true'
+        id: auth
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/auth.sh qa
+      - name: Validate deployment (check-only, RunLocalTests)
+        if: steps.src.outputs.has_source == 'true'
+        run: bash scripts/sf/deploy.sh validate "${{ steps.auth.outputs.alias }}"
+      - name: Coverage of changed classes
+        if: steps.src.outputs.has_source == 'true'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || 'origin/main' }}
+        run: node scripts/sf/coverage-check.js deploy-result.json "$BASE"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.src.outputs.has_source == 'true'
+        with:
+          name: sf-validate-result
+          path: deploy-result.json
+          if-no-files-found: ignore
