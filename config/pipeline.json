@@ -48,9 +48,18 @@
     "reconcileQueuedAfterMinutes": 10
   },
   "orgs": {
-    "agent":      { "environment": "agent-sandbox", "alias": "agent" },
-    "qa":         { "environment": "qa",            "alias": "qa" },
-    "uat":        { "environment": "uat",           "alias": "uat", "enabled": true },
-    "production": { "environment": "production",    "alias": "prod" }
+    "$comment": "Test mode: one Developer Edition org plays every role. To add real sandboxes later, give each role its own instanceUrl and secrets in its GitHub Environment; workflows do not change.",
+    "mode": "single-org",
+    "agent":      { "environment": "agent-sandbox", "alias": "agent", "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com" },
+    "qa":         { "environment": "qa",            "alias": "qa",    "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com" },
+    "uat":        { "environment": "uat",           "alias": "uat",   "enabled": false },
+    "production": { "environment": "production",    "alias": "prod",  "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com" }
+  },
+  "salesforce": {
+    "cliVersion": "2.152.14",
+    "codeAnalyzerVersion": "5.16.0",
+    "testLevel": "RunLocalTests",
+    "codeAnalyzerSeverityThreshold": 2,
+    "quickDeployMaxAgeHours": 216
   }
 }

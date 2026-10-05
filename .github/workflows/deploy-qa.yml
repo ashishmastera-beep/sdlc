@@ -1,0 +1,61 @@
+name: deploy-qa
+
+# Runs on every merge to main.
+# Multi-org mode: deploys force-app to QA with RunLocalTests.
+# Single-org mode (config .orgs.mode == "single-org"): QA and production are the SAME org, so this job
+# only VALIDATES; real deployments happen only through the approved release-prod workflow.
+
+on:
+  push:
+    branches: [main]
+    paths: ["force-app/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-qa
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy-qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: qa
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - id: src
+        run: bash scripts/sf/has-source.sh
+      - id: mode
+        run: |
+          if [[ "$(jq -r .orgs.mode config/pipeline.json)" == "single-org" ]]; then
+            echo "action=validate" >> "$GITHUB_OUTPUT"
+            echo "Single-org mode: validating only. Use **release-prod** to deploy." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "action=deploy" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install Salesforce CLI
+        if: steps.src.outputs.has_source == 'true'
+        run: npm install --global "@salesforce/cli@$(jq -r .salesforce.cliVersion config/pipeline.json)"
+      - name: Log in to QA
+        if: steps.src.outputs.has_source == 'true'
+        id: auth
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/auth.sh qa
+      - name: Deploy (or validate in single-org mode)
+        if: steps.src.outputs.has_source == 'true'
+        run: bash scripts/sf/deploy.sh "${{ steps.mode.outputs.action }}" "${{ steps.auth.outputs.alias }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.src.outputs.has_source == 'true'
+        with:
+          name: deploy-qa-result
+          path: deploy-result.json
+          if-no-files-found: ignore

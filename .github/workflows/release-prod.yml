@@ -1,0 +1,118 @@
+name: release-prod
+
+# Manual release of main to production (gate G4).
+#   1. validate  - check-only deploy to production with RunLocalTests (no approval needed to validate)
+#   2. deploy    - waits for approval on the "production" environment, then quick-deploys the
+#                  validated job (no tests re-run). If the validation is too old, it redeploys with tests.
+#   3. Tags the released commit and creates a GitHub release with generated notes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "Release note headline (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-prod
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate-production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      job_id: ${{ steps.validate.outputs.job_id }}
+      validated_at: ${{ steps.stamp.outputs.at }}
+      has_source: ${{ steps.src.outputs.has_source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - id: src
+        run: bash scripts/sf/has-source.sh
+      - name: Nothing to release
+        if: steps.src.outputs.has_source != 'true'
+        run: |
+          echo "::error::force-app has no metadata; nothing to release."
+          exit 1
+      - name: Install Salesforce CLI
+        run: npm install --global "@salesforce/cli@$(jq -r .salesforce.cliVersion config/pipeline.json)"
+      - name: Log in to production
+        id: auth
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/auth.sh production
+      - name: Validate against production (check-only, RunLocalTests)
+        id: validate
+        run: bash scripts/sf/deploy.sh validate "${{ steps.auth.outputs.alias }}"
+      - id: stamp
+        run: echo "at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: production-validation
+          path: deploy-result.json
+          if-no-files-found: ignore
+
+  deploy:
+    name: deploy-production
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: production
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install Salesforce CLI
+        run: npm install --global "@salesforce/cli@$(jq -r .salesforce.cliVersion config/pipeline.json)"
+      - name: Log in to production
+        id: auth
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/auth.sh production
+      - name: Quick deploy the validated release
+        env:
+          JOB_ID: ${{ needs.validate.outputs.job_id }}
+          VALIDATED_AT: ${{ needs.validate.outputs.validated_at }}
+        run: |
+          max_h="$(jq -r .salesforce.quickDeployMaxAgeHours config/pipeline.json)"
+          age_h=$(( ( $(date -u +%s) - VALIDATED_AT ) / 3600 ))
+          if (( age_h >= max_h )); then
+            echo "Validation is ${age_h}h old (limit ${max_h}h); deploying with tests instead." >> "$GITHUB_STEP_SUMMARY"
+            bash scripts/sf/deploy.sh deploy "${{ steps.auth.outputs.alias }}"
+          else
+            bash scripts/sf/deploy.sh quick "${{ steps.auth.outputs.alias }}" "$JOB_ID"
+          fi
+      - name: Tag and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          tag="v$(date -u +%Y.%m.%d)-${GITHUB_RUN_NUMBER}"
+          # --notes (if given) is placed above the generated notes.
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --notes "${NOTES}"
+          echo "Released **$tag** to production." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: production-deploy
+          path: deploy-result.json
+          if-no-files-found: ignore
