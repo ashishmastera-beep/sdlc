@@ -1,0 +1,22 @@
+# Files the Salesforce CLI never deploys or retrieves.
+# Start narrow; widen the baseline deliberately (see README "Baseline").
+
+# Tooling and repo files
+package.xml
+**/jsconfig.json
+**/.eslintrc.json
+**/__tests__/**
+**/.gitkeep
+
+# Profiles are excluded at first: use permission sets instead.
+**/profiles/**
+
+# Org-specific settings and noise that differ per sandbox
+**/settings/**
+**/appMenus/**
+**/sites/**
+**/networks/**
+**/connectedApps/**
+**/externalClientApplications/**
+**/namedCredentials/**
+**/externalCredentials/**

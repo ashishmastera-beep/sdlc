@@ -1,0 +1,22 @@
+# Salesforce CLI
+.sf/
+.sfdx/
+.localdevserver/
+deploy-options.json
+
+# Node
+node_modules/
+coverage/
+
+# Secrets and keys: never commit these
+*.key
+*.pem
+server.*
+.env
+.env.*
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+*.log

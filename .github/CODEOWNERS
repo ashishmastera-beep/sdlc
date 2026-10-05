@@ -1,0 +1,13 @@
+# Owners are required reviewers once the main ruleset requires code-owner review.
+# Replace the user below with your teams (e.g. @org/sf-devs, @org/platform-leads) when you have them.
+
+*                       @ashishmastera-beep
+/force-app/             @ashishmastera-beep
+/specs/                 @ashishmastera-beep
+
+# Pipeline rules: agents and developers cannot change these without a platform lead
+/.github/               @ashishmastera-beep
+/config/                @ashishmastera-beep
+/scripts/               @ashishmastera-beep
+/sfdx-project.json      @ashishmastera-beep
+/.forceignore           @ashishmastera-beep

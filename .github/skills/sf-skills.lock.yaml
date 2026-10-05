@@ -1,0 +1,36 @@
+repo: forcedotcom/sf-skills
+commit: 3c15867bdb9dacd515960174c661c706d041bb63
+release: 1.59.0
+synced: 2026-10-05
+skills:
+  - platform-apex-generate
+  - platform-apex-test-generate
+  - platform-apex-test-run
+  - platform-apex-logs-debug
+  - platform-soql-query
+  - platform-custom-object-generate
+  - platform-custom-field-generate
+  - platform-custom-metadata-type-generate
+  - platform-custom-setting-generate
+  - platform-custom-tab-generate
+  - platform-custom-application-generate
+  - platform-custom-report-type-generate
+  - platform-flexipage-generate
+  - platform-list-view-generate
+  - platform-permission-set-generate
+  - platform-validation-rule-generate
+  - platform-value-set-generate
+  - platform-sharing-rules-generate
+  - platform-sharing-owd-configure
+  - platform-metadata-deploy
+  - platform-metadata-retrieve
+  - automation-flow-generate
+  - experience-lwc-generate
+  - experience-lwc-security-validate
+  - experience-lwc-base-components-integrate
+  - experience-lds-best-practices-apply
+  - design-systems-slds-apply
+  - design-systems-slds-validate
+  - dx-code-analyzer-run
+  - dx-code-analyzer-configure
+  - dx-org-analyze
