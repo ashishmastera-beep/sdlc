@@ -21,7 +21,7 @@ concurrency:
 jobs:
   deploy:
     name: deploy-qa
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: qa
     steps:
@@ -59,3 +59,23 @@ jobs:
           name: deploy-qa-result
           path: deploy-result.json
           if-no-files-found: ignore
+
+  jira:
+    name: jira-sync
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      MESSAGES: ${{ toJSON(github.event.commits.*.message) }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Move merged cards to Deployed
+        run: |
+          mapfile -t keys < <(jq -r '.[]?' <<<"${MESSAGES:-[]}" | bash scripts/jira/keys-from-text.sh)
+          echo "Cards in this push: ${keys[*]:-none}"
+          s() { jq -r ".jira.statuses.$1.name" config/pipeline.json; }
+          bash scripts/jira/sync-keys.sh --from "$(s approved)" --to "$(s deployed)" \
+            --comment "Merged change validated in QA." --url "$RUN_URL" "${keys[@]}"

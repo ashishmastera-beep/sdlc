@@ -1,0 +1,119 @@
+name: jira-router
+
+# Single entry point for every Jira event (sent by Jira Automation or by the reconciler).
+# The payload carries only the issue key; everything else is re-read from Jira.
+#   guard   validate the key, drop stale or duplicate events, claim the card (Agent State=Running, attempts+1)
+#   stage   run the stage for the event (reusable workflow)
+#   blocked on any stage failure: Agent State=Failed, comment with the run link, move to Blocked
+
+on:
+  repository_dispatch:
+    types: [jira.enrich, jira.spec_approved, jira.build]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jira-${{ github.event.client_payload.issue_key }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.claim.outputs.proceed }}
+      key: ${{ steps.key.outputs.key }}
+    env:
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate payload
+        id: key
+        env:
+          KEY: ${{ github.event.client_payload.issue_key }}
+        run: |
+          project="$(jq -r .jira.projectKey config/pipeline.json)"
+          if [[ ! "$KEY" =~ ^${project}-[0-9]+$ ]]; then echo "::error::invalid issue key '$KEY'"; exit 1; fi
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "### ${{ github.event.action }} for $KEY" >> "$GITHUB_STEP_SUMMARY"
+      - name: Expected status for this event
+        id: expect
+        run: |
+          case "${{ github.event.action }}" in
+            jira.enrich)        s=enrich ;;
+            jira.spec_approved) s=specApproved ;;
+            jira.build)         s=readyForBuild ;;
+          esac
+          echo "status=$(jq -r ".jira.statuses.$s.name" config/pipeline.json)" >> "$GITHUB_OUTPUT"
+      - name: Drop stale or duplicate events
+        id: guard
+        run: bash scripts/jira/guard.sh "${{ steps.key.outputs.key }}" "${{ steps.expect.outputs.status }}"
+      - name: Claim the card
+        id: claim
+        env:
+          REASON: ${{ steps.guard.outputs.reason }}
+        run: |
+          if [[ "${{ steps.guard.outputs.proceed }}" != "true" ]]; then
+            echo "Skipped: $REASON" >> "$GITHUB_STEP_SUMMARY"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          set +e; bash scripts/jira/claim.sh "${{ steps.key.outputs.key }}" "$RUN_URL"; rc=$?; set -e
+          if [[ $rc -eq 3 ]]; then echo "Retry limit reached; card moved to Blocked." >> "$GITHUB_STEP_SUMMARY"; echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ $rc -ne 0 ]]; then exit $rc; fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+  enrich:
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true' && github.event.action == 'jira.enrich'
+    uses: ./.github/workflows/stage-enrich.yml
+    with:
+      issue_key: ${{ needs.guard.outputs.key }}
+    secrets: inherit
+    permissions:
+      contents: read
+
+  spec-approved:
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true' && github.event.action == 'jira.spec_approved'
+    uses: ./.github/workflows/stage-spec-approved.yml
+    with:
+      issue_key: ${{ needs.guard.outputs.key }}
+    secrets: inherit
+    permissions:
+      contents: read
+      actions: write
+
+  build:
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true' && github.event.action == 'jira.build'
+    uses: ./.github/workflows/stage-build.yml
+    with:
+      issue_key: ${{ needs.guard.outputs.key }}
+    secrets: inherit
+    permissions:
+      contents: read
+
+  blocked:
+    needs: [guard, enrich, spec-approved, build]
+    if: >-
+      always() && needs.guard.outputs.proceed == 'true' &&
+      (needs.enrich.result == 'failure' || needs.spec-approved.result == 'failure' || needs.build.result == 'failure')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Move the card to Blocked
+        run: |
+          bash scripts/jira/block.sh "${{ needs.guard.outputs.key }}" \
+            "the ${{ github.event.action }} stage failed. See the run for details." \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

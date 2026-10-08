@@ -1,0 +1,38 @@
+name: stage-spec-approved
+
+# Runs when a tech lead moves a card to "Enrichment Approved" (gate G2).
+# Records the exact spec version the build must use, then asks the reconciler to apply the WIP gate,
+# which moves the card to "Ready for Build" as soon as a build slot is free.
+# PHASE 4 STUB: the approved SHA is the current main. Phase 5 merges the spec PR and records its merge SHA.
+
+on:
+  workflow_call:
+    inputs:
+      issue_key:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  approve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      KEY: ${{ inputs.issue_key }}
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record the approved spec version
+        run: |
+          sha="$(git rev-parse --short=12 HEAD)"
+          bash scripts/jira/set-field.sh "$KEY" approvedSpecSha "$sha"
+          bash scripts/jira/comment.sh "$KEY" "Spec approved at commit ${sha}. The card moves to Ready for Build when a build slot is free." "$RUN_URL"
+          bash scripts/jira/release.sh "$KEY" --reset-attempts
+      - name: Apply the WIP gate now
+        run: gh workflow run reconciler.yml --repo "$GITHUB_REPOSITORY" --ref "$(jq -r .github.defaultBranch config/pipeline.json)"

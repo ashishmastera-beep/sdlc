@@ -12,5 +12,12 @@ Used by the GitHub workflows. All need `JIRA_BASE_URL`, `JIRA_USER`, `JIRA_API_T
 | `claim.sh KEY RUN_URL` | Agent State=Running, record run, attempts+1; blocks when over the limit |
 | `release.sh KEY [--reset-attempts]` | Agent State=Idle after success |
 | `block.sh KEY "reason" [url]` | Agent State=Failed, comment, move to Blocked |
+| `get-field.sh KEY fieldKey` | Print one pipeline field as plain text |
+| `keys-from-text.sh < text` | Project keys found in commit messages or titles |
+| `sync-keys.sh --to "A,B" [--from …] KEY…` | Mirror GitHub events onto cards; never fails the caller; skips when Jira isn't configured |
+| `wip-gate.sh` | Promote approved specs to Ready for Build while builds in flight < `limits.wip` |
+| `reconcile.sh` | Re-dispatch lost/dead events, then run the WIP gate (called every 15 min) |
+
+Setup of tokens and the two Jira automation rules: [`docs/jira-setup.md`](../../docs/jira-setup.md).
 
 Run the offline tests with `scripts/jira/test/run.sh` (uses a local mock of the Jira API).

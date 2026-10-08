@@ -25,7 +25,7 @@ jobs:
   validate:
     name: validate-production
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     outputs:
       job_id: ${{ steps.validate.outputs.job_id }}
@@ -67,7 +67,7 @@ jobs:
   deploy:
     name: deploy-production
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: production
     permissions:
@@ -101,7 +101,16 @@ jobs:
           else
             bash scripts/sf/deploy.sh quick "${{ steps.auth.outputs.alias }}" "$JOB_ID"
           fi
+      - name: Cards in this release
+        id: cards
+        run: |
+          prev="$(git tag -l 'v*' --sort=-creatordate | head -1)"
+          range="${prev:+${prev}..}${GITHUB_SHA}"
+          keys="$(git log --format=%B "$range" | bash scripts/jira/keys-from-text.sh | tr '\n' ' ')"
+          echo "Since ${prev:-the first commit}: ${keys:-no Jira cards}" >> "$GITHUB_STEP_SUMMARY"
+          echo "keys=${keys}" >> "$GITHUB_OUTPUT"
       - name: Tag and publish release
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES: ${{ inputs.notes }}
@@ -110,6 +119,19 @@ jobs:
           # --notes (if given) is placed above the generated notes.
           gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --notes "${NOTES}"
           echo "Released **$tag** to production." >> "$GITHUB_STEP_SUMMARY"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Move released cards to Released
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          KEYS: ${{ steps.cards.outputs.keys }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          read -r -a keys <<<"$KEYS"
+          s() { jq -r ".jira.statuses.$1.name" config/pipeline.json; }
+          bash scripts/jira/sync-keys.sh --from "$(s approved),$(s deployed)" --to "$(s deployed),$(s released)" \
+            --comment "Released to production in ${TAG}." \
+            --url "${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}" "${keys[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

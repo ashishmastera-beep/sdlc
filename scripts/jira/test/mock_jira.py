@@ -50,6 +50,60 @@ ISSUES = {
 }
 
 
+def _card(status, sha=None, state="Idle"):
+    return {"status": status, "comments": [], "fields": {
+        "summary": "card", "issuetype": {"name": "Story"}, "labels": [], "priority": {"name": "Medium"},
+        "description": None, F["acceptanceCriteria"]: None, F["riskLevel"]: None,
+        F["agentState"]: {"value": state}, F["agentRun"]: None, F["agentAttempts"]: None,
+        F["approvedSpecSha"]: sha, F["specPr"]: None, F["buildPr"]: None}}
+
+
+ISSUES["SDLC-3"] = _card(S["specApproved"], sha="abc123")   # oldest approved spec
+ISSUES["SDLC-4"] = _card(S["specApproved"], sha="def456")
+ISSUES["SDLC-5"] = _card(S["inBuild"])
+ISSUES["SDLC-6"] = _card(S["prCreated"])
+ISSUES["SDLC-7"] = _card(S["approved"])
+ISSUES["SDLC-8"] = _card(S["readyForBuild"], state="Queued")
+
+
+def _match(key, issue, clause):
+    """Tiny JQL subset: project =, status =, status in (...), cf[N] = V, cf[N] is not EMPTY; other clauses ignored."""
+    c = clause.strip()
+    m = re.fullmatch(r'project\s*=\s*(\S+)', c)
+    if m:
+        return key.startswith(m.group(1) + "-")
+    m = re.fullmatch(r'status\s*=\s*"([^"]+)"', c)
+    if m:
+        return issue["status"] == m.group(1)
+    m = re.fullmatch(r'status\s+in\s*\((.*)\)', c)
+    if m:
+        return issue["status"] in re.findall(r'"([^"]+)"', m.group(1))
+    m = re.fullmatch(r'cf\[(\d+)\]\s+is\s+not\s+EMPTY', c)
+    if m:
+        return issue["fields"].get("customfield_" + m.group(1)) not in (None, "")
+    m = re.fullmatch(r'cf\[(\d+)\]\s*=\s*"?([^"]+?)"?', c)
+    if m:
+        v = issue["fields"].get("customfield_" + m.group(1))
+        return (v.get("value") if isinstance(v, dict) else v) == m.group(2)
+    return True
+
+
+def search(query):
+    from urllib.parse import parse_qs
+    q = parse_qs(query)
+    jql = re.split(r'\s+ORDER\s+BY\s+', q.get("jql", [""])[0])[0]
+    fields = q.get("fields", ["status"])[0].split(",")
+    mx = int(q.get("maxResults", ["50"])[0])
+    out = []
+    for key in sorted(ISSUES, key=lambda k: int(k.split("-")[1])):
+        i = ISSUES[key]
+        if all(_match(key, i, c) for c in re.split(r'\s+AND\s+', jql)):
+            f = {n: i["fields"].get(n) for n in fields if n != "status"}
+            f["status"] = {"name": i["status"]}
+            out.append({"key": key, "fields": f})
+    return {"issues": out[:mx]}
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -74,6 +128,8 @@ class H(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b"{}")
 
     def do_GET(self):
+        if self.path.startswith("/rest/api/3/search/jql?"):
+            return self._send(200, search(self.path.split("?", 1)[1]))
         key, sub = self._issue()
         if not key:
             return
