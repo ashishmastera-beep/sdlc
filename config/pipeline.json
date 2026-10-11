@@ -149,6 +149,10 @@
       {
         "file": "technical.md",
         "title": "Technical Specification"
+      },
+      {
+        "file": "implementation-log.md",
+        "title": "Implementation Log"
       }
     ]
   }
