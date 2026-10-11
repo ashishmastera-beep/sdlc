@@ -65,7 +65,15 @@ Same as rule 1, except:
 - **Body:** `{"event_type": "jira.spec_approved", "client_payload": {"issue_key": "{{issue.key}}", "source": "jira"}}`
 - **Name:** `SDLC → GitHub: spec approved`
 
-GitHub answers a successful dispatch with **HTTP 204**. Check the rule's **Audit log**: `401` means the token is wrong or expired, `404` means the token cannot see the repository.
+GitHub answers a successful dispatch with **HTTP 204**. Check the rule's **Audit log**:
+
+| Response | Meaning | Fix |
+| --- | --- | --- |
+| `401` | Token wrong or expired | Regenerate the token and paste it into both rules |
+| `403` *Resource not accessible by personal access token* | Token lacks the permission | Edit the token: Repository access includes `sdlc`, **Contents: Read and write**. The token value does not change, so the rules need no edit |
+| `404` | Token cannot see the repository | Resource owner / repository access is wrong |
+
+A card whose dispatch failed keeps **Agent State = Queued**; the reconciler re-dispatches it within 15 minutes once the token is fixed. To retry at once, move it **Enrichment In Progress → Needs Info → Enrichment In Progress**.
 
 ## 4. Test the loop (Phase 4 acceptance)
 
