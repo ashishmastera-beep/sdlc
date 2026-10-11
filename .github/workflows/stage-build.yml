@@ -1,9 +1,15 @@
 name: stage-build
 
-# Build stage, called by jira-router when a card reaches "Ready for Build".
-# PHASE 4 STUB: moves the card to "In Build" and stops, so a person can open a PR titled "<KEY>: ..."
-# to test the PR -> Jira sync. Phase 6 replaces the stub with: create an issue from the approved spec
-# and assign it to the Copilot coding agent.
+# Build stage (Agent 2), called by jira-router when a card reaches "Ready for Build".
+#   1. Card -> In Build. Check the spec on main is still exactly the approved one (Approved Spec SHA).
+#   2. Retrieve read-only org context the spec touches (page layouts of the objects) for the agent.
+#   3. Round 1: GitHub Copilot CLI implements the spec under force-app/ (+ tests), local checks, then a
+#      check-only deploy to the org with tests and the coverage gate. On failure the errors go back to the
+#      agent: up to 2 fix rounds (rounds 2 and 3).
+#   4. Commit to copilot/<KEY>, open or update the PR, run the PR checks on it.
+#   5. Jira: Build PR set, card -> PR Created, comment, updated Implementation Log PDF attached.
+# Security: the agent steps get only the Copilot token. Salesforce logins exist only inside with-org.sh
+# (logged out and wiped afterwards); Jira and GitHub write tokens only in their own steps.
 
 on:
   workflow_call:
@@ -13,22 +19,206 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  actions: write
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 150
     env:
       KEY: ${{ inputs.issue_key }}
-      JIRA_USER: ${{ secrets.JIRA_USER }}
-      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Start the build (stub)
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Start the build
+        id: start
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
           sha="$(bash scripts/jira/get-field.sh "$KEY" approvedSpecSha)"
+          [[ -n "$sha" ]] || { echo "::error::$KEY has no Approved Spec SHA"; exit 1; }
+          git cat-file -e "${sha}^{commit}" || { echo "::error::approved spec commit $sha is not in the repository"; exit 1; }
+          if ! git diff --quiet "$sha" HEAD -- "specs/${KEY}" ":(exclude)specs/${KEY}/implementation-log.md"; then
+            echo "::error::specs/${KEY} on main differs from the approved spec ${sha}. Re-approve the spec before building."
+            git diff --stat "$sha" HEAD -- "specs/${KEY}"
+            exit 1
+          fi
+          bash scripts/jira/get-issue.sh "$KEY" | jq -r .summary > "$RUNNER_TEMP/summary.txt"
           bash scripts/jira/transition.sh "$KEY" "$(jq -r .jira.statuses.inBuild.name config/pipeline.json)"
-          bash scripts/jira/comment.sh "$KEY" "Build started from approved spec ${sha} (pipeline test stub). In Phase 6 the Copilot coding agent implements it here. To test the PR sync, open a PR titled '${KEY}: <summary>'." "$RUN_URL"
+          bash scripts/jira/comment.sh "$KEY" "Build agent started from approved spec ${sha}." "$RUN_URL"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          { echo "FEEDBACK_DIR=$RUNNER_TEMP/feedback"; echo "AGENT_LOG_DIR=$RUNNER_TEMP/agent-logs"; } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/feedback" "$RUNNER_TEMP/agent-logs"
+          echo "### Building ${KEY} from spec \`${sha}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Salesforce CLI, Copilot CLI and the PDF renderer
+        run: |
+          npm install -g "@salesforce/cli@$(jq -r .salesforce.cliVersion config/pipeline.json)" \
+                         "@github/copilot@$(jq -r .agents.copilotCliVersion config/pipeline.json)" \
+                         "marked@$(jq -r .agents.markedVersion config/pipeline.json)"
+          sf --version && copilot --version
+
+      - name: Retrieve org context for the agent
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/with-org.sh agent bash -c 'bash scripts/agents/retrieve-context.sh "$KEY" "$ORG_ALIAS"'
+
+      # ---- Round 1 -------------------------------------------------------------------------------
+      - name: "Round 1: build agent"
+        id: r1
+        continue-on-error: true
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: bash scripts/agents/run-build.sh "$KEY" 1
+      - name: "Round 1: validate in the org"
+        id: v1
+        if: steps.r1.outcome == 'success'
+        continue-on-error: true
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/with-org.sh agent bash -c 'bash scripts/agents/org-validate.sh "$ORG_ALIAS" "$FEEDBACK_DIR/round-1.md"'
+
+      # ---- Round 2 (fix) -------------------------------------------------------------------------
+      - name: "Round 2: build agent fixes the org errors"
+        id: r2
+        if: steps.v1.outcome == 'failure'
+        continue-on-error: true
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: bash scripts/agents/run-build.sh "$KEY" 2 "$FEEDBACK_DIR/round-1.md"
+      - name: "Round 2: validate in the org"
+        id: v2
+        if: steps.r2.outcome == 'success'
+        continue-on-error: true
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/with-org.sh agent bash -c 'bash scripts/agents/org-validate.sh "$ORG_ALIAS" "$FEEDBACK_DIR/round-2.md"'
+
+      # ---- Round 3 (fix) -------------------------------------------------------------------------
+      - name: "Round 3: build agent fixes the org errors"
+        id: r3
+        if: steps.v2.outcome == 'failure'
+        continue-on-error: true
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: bash scripts/agents/run-build.sh "$KEY" 3 "$FEEDBACK_DIR/round-2.md"
+      - name: "Round 3: validate in the org"
+        id: v3
+        if: steps.r3.outcome == 'success'
+        continue-on-error: true
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: bash scripts/sf/with-org.sh agent bash -c 'bash scripts/agents/org-validate.sh "$ORG_ALIAS" "$FEEDBACK_DIR/round-3.md"'
+
+      - name: Keep the agent transcripts and validation results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-${{ inputs.issue_key }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/agent-logs
+            ${{ runner.temp }}/feedback
+            deploy-result.json
+            .pipeline-input/org/README.md
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Did a round pass?
+        id: result
+        env:
+          R1: ${{ steps.r1.outcome }}
+          R2: ${{ steps.r2.outcome }}
+          R3: ${{ steps.r3.outcome }}
+          V1: ${{ steps.v1.outcome }}
+          V2: ${{ steps.v2.outcome }}
+          V3: ${{ steps.v3.outcome }}
+        run: |
+          for n in 1 2 3; do v="V$n"; if [[ "${!v}" == success ]]; then echo "round=$n" >> "$GITHUB_OUTPUT"
+            echo "Build passed org validation in round $n." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi; done
+          echo "Agent: $R1/$R2/$R3 · Org validation: $V1/$V2/$V3" >> "$GITHUB_STEP_SUMMARY"
+          last="$(find "$FEEDBACK_DIR" -name 'round-*.md' -size +0 2>/dev/null | sort | tail -1)"
+          [[ -n "$last" ]] && cat "$last" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::The build did not pass org validation after 3 rounds (or the agent failed). See the job summary."
+          exit 1
+
+      - name: Commit and open or update the build PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.start.outputs.sha }}
+          ROUND: ${{ steps.result.outputs.round }}
+        run: |
+          branch="$(jq -r .github.branchPrefixes.copilot config/pipeline.json)${KEY}"
+          base="$(jq -r .github.defaultBranch config/pipeline.json)"
+          summary="$(cat "$RUNNER_TEMP/summary.txt")"
+          job="$(jq -r '.result.id // ""' deploy-result.json 2>/dev/null)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add force-app "specs/${KEY}/implementation-log.md"
+          git commit -q -m "${KEY}: ${summary}" -m "Built by the build agent from approved spec ${SHA}. Run: ${RUN_URL}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+
+          # shellcheck disable=SC2016  # backticks are Markdown here, not command substitution
+          { cat .pipeline-output/pr.md
+            printf '\n---\n- **Jira:** [%s](%s/browse/%s)\n- **Approved spec:** `%s` (`specs/%s/`)\n' \
+              "$KEY" "$(jq -r .jira.site config/pipeline.json)" "$KEY" "$SHA" "$KEY"
+            printf -- '- **Org validation:** passed in round %s (check-only deploy %s, tests + coverage gate)\n- **Agent run:** %s\n' \
+              "$ROUND" "${job:-n/a}" "$RUN_URL"
+            printf '\nBuilt by the build agent (GitHub Copilot CLI). Review it like any other PR; approving and merging moves the Jira card on.\n'
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          owner="${GITHUB_REPOSITORY%%/*}"
+          number="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?head=${owner}:${branch}&state=open" --jq '.[0].number // empty')"
+          if [[ -z "$number" ]]; then
+            number="$(jq -n --arg t "${KEY}: ${summary}" --arg h "$branch" --arg b "$base" --rawfile body "$RUNNER_TEMP/pr-body.md" \
+              '{title: ($t | .[0:250]), head: $h, base: $b, body: $body}' \
+              | gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls" --input - --jq .number)"
+          else
+            jq -n --rawfile body "$RUNNER_TEMP/pr-body.md" '{body: $body}' \
+              | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/pulls/${number}" --input - >/dev/null
+          fi
+          # PRs opened with the workflow token do not trigger other workflows; start the PR checks explicitly.
+          gh workflow run pr-validate.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${number}"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Build PR: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the Jira card
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          ROUND: ${{ steps.result.outputs.round }}
+        run: |
+          bash scripts/jira/set-field.sh "$KEY" buildPr "$PR_URL"
+          bash scripts/jira/transition.sh "$KEY" "$(jq -r .jira.statuses.prCreated.name config/pipeline.json)"
+          files="$(git show --stat --format= HEAD -- force-app | grep -c '|' || true)"
+          bash scripts/jira/comment.sh "$KEY" "$(printf '%s\n' \
+            "Build complete: ${files} metadata file(s) changed; validated in the org with tests (round ${ROUND} of 3)." \
+            "Review and approve the pull request; merging it moves the card on to QA.")" "$PR_URL"
+          log="$RUNNER_TEMP/${KEY}-Implementation-Log.pdf"
+          node scripts/agents/render-pdf.mjs "specs/${KEY}/implementation-log.md" "$log" \
+              --title "${KEY} Implementation Log" --status "Build PR open" --subtitle "$(cat "$RUNNER_TEMP/summary.txt")" \
+            && bash scripts/jira/attach.sh "$KEY" "$log" \
+            || echo "::warning::Could not attach the updated Implementation Log."
           bash scripts/jira/release.sh "$KEY" --reset-attempts

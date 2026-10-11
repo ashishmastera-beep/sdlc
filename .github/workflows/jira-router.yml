@@ -85,7 +85,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      copilot-requests: write
 
   spec-approved:
     needs: guard
@@ -107,7 +106,9 @@ jobs:
       issue_key: ${{ needs.guard.outputs.key }}
     secrets: inherit
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
+      actions: write
 
   blocked:
     needs: [guard, enrich, spec-approved, build]
