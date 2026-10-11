@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Contract_End_Date__c</fullName>
+    <description>Records the date when the Account's current contract ends so sales users can plan renewal conversations.</description>
+    <inlineHelpText>Enter the contract end date to identify Accounts due for renewal within 30 days.</inlineHelpText>
+    <label>Contract End Date</label>
+    <required>false</required>
+    <type>Date</type>
+</CustomField>
