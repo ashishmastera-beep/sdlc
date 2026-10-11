@@ -90,4 +90,17 @@ check "reconcile re-dispatches lost Queued"    'grep -q "jira.build.*SDLC-8" "$d
 check "reconcile retries a dead Running run"   'grep -q "jira.spec_approved.*SDLC-4" "$dlog" && [[ "$(state ".\"SDLC-4\".fields.customfield_10109.value")" == Queued ]]'
 rm -rf "$fakebin"
 
+# --- Phase 5: Description = Original Story + AI Enrichment ---
+md="$(mktemp)"; printf '### Business Context\n\nFirst pass.\n' > "$md"
+"$scripts/set-description.sh" SDLC-1 "$md" "https://github.com/o/r/blob/spec/SDLC-1/" >/dev/null
+desc() { state ".\"SDLC-1\".fields.description"; }
+check "description gets both sections"   '[[ "$(desc | jq -r "[.content[] | select(.type==\"heading\") | .content[0].text] | join(\"|\")")" == "Original Story|AI Enrichment|Business Context" ]]'
+check "original story text kept"         '[[ "$(desc)" == *"contract end date"* ]]'
+printf '### Business Context\n\nSecond pass.\n' > "$md"
+"$scripts/set-description.sh" SDLC-1 "$md" >/dev/null
+check "rework replaces enrichment"       '[[ "$(desc)" == *"Second pass."* && "$(desc)" != *"First pass."* && "$(desc | grep -o "AI Enrichment" | wc -l)" -eq 1 ]]'
+out="$("$scripts/get-issue.sh" SDLC-1)"
+check "agent sees only the original"     '[[ "$(jq -r .description <<<"$out")" == *"contract end date"* && "$(jq -r .description <<<"$out")" != *"Second pass"* ]]'
+check "set-description needs a file"     '! "$scripts/set-description.sh" SDLC-1 /nonexistent 2>/dev/null'
+
 echo; echo "$pass passed, $fail failed"; [[ $fail -eq 0 ]]

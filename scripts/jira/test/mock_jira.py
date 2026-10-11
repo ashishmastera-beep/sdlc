@@ -168,7 +168,7 @@ class H(BaseHTTPRequestHandler):
             return
         b = self._body()
         for k, v in b["fields"].items():
-            if k not in F.values():
+            if k not in F.values() and k != "description":
                 return self._send(400, {"errors": {k: "unknown field"}})
             ISSUES[key]["fields"][k] = v
         self._send(204)

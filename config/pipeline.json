@@ -5,39 +5,94 @@
     "projectKey": "SDLC",
     "projectId": "10066",
     "boardId": 67,
-    "issueTypes": { "story": "10081", "bug": "10082" },
+    "issueTypes": {
+      "story": "10081",
+      "bug": "10082"
+    },
     "statuses": {
-      "draft":         { "id": "10072", "name": "Draft" },
-      "readyToWork":   { "id": "10075", "name": "Ready to Work" },
-      "enrich":        { "id": "10073", "name": "Enrichment In Progress" },
-      "needsInfo":     { "id": "10076", "name": "Needs Info" },
-      "enriched":      { "id": "10077", "name": "Enrichment Completed" },
-      "specApproved":  { "id": "10078", "name": "Enrichment Approved" },
-      "readyForBuild": { "id": "10079", "name": "Ready for Build" },
-      "inBuild":       { "id": "10080", "name": "In Build" },
-      "prCreated":     { "id": "10081", "name": "PR Created" },
-      "approved":      { "id": "10082", "name": "Approved" },
-      "deployed":      { "id": "10083", "name": "Deployed" },
-      "released":      { "id": "10074", "name": "Released" },
-      "blocked":       { "id": "10084", "name": "Blocked" }
+      "draft": {
+        "id": "10072",
+        "name": "Draft"
+      },
+      "readyToWork": {
+        "id": "10075",
+        "name": "Ready to Work"
+      },
+      "enrich": {
+        "id": "10073",
+        "name": "Enrichment In Progress"
+      },
+      "needsInfo": {
+        "id": "10076",
+        "name": "Needs Info"
+      },
+      "enriched": {
+        "id": "10077",
+        "name": "Enrichment Completed"
+      },
+      "specApproved": {
+        "id": "10078",
+        "name": "Enrichment Approved"
+      },
+      "readyForBuild": {
+        "id": "10079",
+        "name": "Ready for Build"
+      },
+      "inBuild": {
+        "id": "10080",
+        "name": "In Build"
+      },
+      "prCreated": {
+        "id": "10081",
+        "name": "PR Created"
+      },
+      "approved": {
+        "id": "10082",
+        "name": "Approved"
+      },
+      "deployed": {
+        "id": "10083",
+        "name": "Deployed"
+      },
+      "released": {
+        "id": "10074",
+        "name": "Released"
+      },
+      "blocked": {
+        "id": "10084",
+        "name": "Blocked"
+      }
     },
     "fields": {
       "acceptanceCriteria": "customfield_10107",
-      "riskLevel":          "customfield_10114",
-      "specPr":             "customfield_10113",
-      "approvedSpecSha":    "customfield_10108",
-      "buildPr":            "customfield_10112",
-      "agentState":         "customfield_10109",
-      "agentRun":           "customfield_10111",
-      "agentAttempts":      "customfield_10110"
+      "riskLevel": "customfield_10114",
+      "specPr": "customfield_10113",
+      "approvedSpecSha": "customfield_10108",
+      "buildPr": "customfield_10112",
+      "agentState": "customfield_10109",
+      "agentRun": "customfield_10111",
+      "agentAttempts": "customfield_10110"
     },
-    "agentStates": ["Idle", "Queued", "Running", "Failed"]
+    "agentStates": [
+      "Idle",
+      "Queued",
+      "Running",
+      "Failed"
+    ]
   },
   "github": {
     "repo": "ashishmastera-beep/sdlc",
     "defaultBranch": "main",
-    "branchPrefixes": { "spec": "spec/", "copilot": "copilot/", "fix": "fix/" },
-    "events": ["jira.enrich", "jira.spec_approved", "jira.build"]
+    "branchPrefixes": {
+      "spec": "spec/",
+      "copilot": "copilot/",
+      "fix": "fix/"
+    },
+    "events": [
+      "jira.enrich",
+      "jira.spec_approved",
+      "jira.build"
+    ]
   },
   "limits": {
     "wip": 3,
@@ -50,10 +105,26 @@
   "orgs": {
     "$comment": "Test mode: one Developer Edition org plays every role. To add real sandboxes later, give each role its own instanceUrl and secrets in its GitHub Environment; workflows do not change.",
     "mode": "single-org",
-    "agent":      { "environment": "agent-sandbox", "alias": "agent", "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com" },
-    "qa":         { "environment": "qa",            "alias": "qa",    "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com" },
-    "uat":        { "environment": "uat",           "alias": "uat",   "enabled": false },
-    "production": { "environment": "production",    "alias": "prod",  "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com" }
+    "agent": {
+      "environment": "agent-sandbox",
+      "alias": "agent",
+      "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com"
+    },
+    "qa": {
+      "environment": "qa",
+      "alias": "qa",
+      "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com"
+    },
+    "uat": {
+      "environment": "uat",
+      "alias": "uat",
+      "enabled": false
+    },
+    "production": {
+      "environment": "production",
+      "alias": "prod",
+      "instanceUrl": "https://orgfarm-f12f97ac86-dev-ed.develop.my.salesforce.com"
+    }
   },
   "salesforce": {
     "cliVersion": "2.152.14",
@@ -61,5 +132,13 @@
     "testLevel": "RunLocalTests",
     "codeAnalyzerSeverityThreshold": 2,
     "quickDeployMaxAgeHours": 216
+  },
+  "agents": {
+    "copilotCliVersion": "1.0.95",
+    "enrich": {
+      "model": "",
+      "timeoutMinutes": 30,
+      "maxAttempts": 2
+    }
   }
 }

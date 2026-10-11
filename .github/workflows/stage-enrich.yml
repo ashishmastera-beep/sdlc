@@ -1,8 +1,14 @@
 name: stage-enrich
 
-# Enrichment stage, called by jira-router after the card is claimed.
-# PHASE 4 STUB: proves the Jira -> GitHub -> Jira loop without AI.
-# Phase 5 replaces the "Enrichment" step with Agent 1 (writes specs/<KEY>/ and opens a spec PR).
+# Enrichment stage (Agent 1), called by jira-router after the card is claimed.
+#   1. Read the story from Jira (only the Original Story part of the Description).
+#   2. GitHub Copilot CLI writes specs/<KEY>/: functional, technical, test plan, implementation log,
+#      enrichment.md (the Jira summary) and enrichment.json (risk, blocking questions).
+#   3. Validate the output (one automatic retry with the findings), commit it to spec/<KEY>, open or update the spec PR.
+#   4. Jira: Description = Original Story + AI Enrichment, Spec PR and Risk Level set, comment,
+#      card -> Enrichment Completed (or Needs Info when the agent has blocking questions).
+# Rework: drag the card back to Enrichment In Progress (or answer in Needs Info and drag it back);
+# the agent revises its previous spec using the latest comments, and the Description section is replaced.
 
 on:
   workflow_call:
@@ -12,25 +18,126 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  copilot-requests: write
 
 jobs:
   enrich:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       KEY: ${{ inputs.issue_key }}
-      JIRA_USER: ${{ secrets.JIRA_USER }}
-      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Enrichment (stub)
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Read the story from Jira
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
-          bash scripts/jira/get-issue.sh "$KEY" > issue.json
-          jq -r '"Read \(.key): \(.summary) [\(.status)]"' issue.json
-          bash scripts/jira/comment.sh "$KEY" "Enrichment stage ran (pipeline test stub). In Phase 5 the enrichment agent writes the functional and technical spec here." "$RUN_URL"
-      - name: Hand over for spec review
+          bash scripts/jira/get-issue.sh "$KEY" > "$RUNNER_TEMP/issue.json"
+          jq -r '"### \(.key): \(.summary)\n\nStatus: \(.status) · Comments: \(.comments | length)"' "$RUNNER_TEMP/issue.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start from the previous spec (rework)
         run: |
-          bash scripts/jira/transition.sh "$KEY" "$(jq -r .jira.statuses.enriched.name config/pipeline.json)"
+          branch="$(jq -r .github.branchPrefixes.spec config/pipeline.json)${KEY}"
+          if git rev-parse --verify --quiet "origin/${branch}" >/dev/null && git cat-file -e "origin/${branch}:specs/${KEY}" 2>/dev/null; then
+            git checkout "origin/${branch}" -- "specs/${KEY}"
+            git reset -q
+            echo "Rework: the agent revises the spec from ${branch}." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install GitHub Copilot CLI
+        run: npm install -g "@github/copilot@$(jq -r .agents.copilotCliVersion config/pipeline.json)" && copilot --version
+
+      - name: Run the enrichment agent
+        timeout-minutes: 35
+        env:
+          # A fine-grained token with the "Copilot Requests" permission. Falls back to the workflow token.
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN || github.token }}
+          AGENT_LOG_DIR: ${{ runner.temp }}/agent-logs
+        run: bash scripts/agents/run-enrichment.sh "$KEY" "$RUNNER_TEMP/issue.json"
+
+      - name: Keep the agent transcript
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: enrichment-${{ inputs.issue_key }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/agent-logs
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Commit the spec and open or update the spec PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          branch="$(jq -r .github.branchPrefixes.spec config/pipeline.json)${KEY}"
+          base="$(jq -r .github.defaultBranch config/pipeline.json)"
+          summary="$(jq -r .summary "$RUNNER_TEMP/issue.json")"
+          result="specs/${KEY}/enrichment.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add "specs/${KEY}"
+          git commit -q -m "${KEY}: spec (enrichment agent)" -m "Run: ${RUN_URL}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+
+          body="$(jq -rn --arg k "$KEY" --arg s "$(jq -r .summary "$result")" --arg r "$(jq -r .riskLevel "$result")" \
+                    --arg w "$(jq -r '.workType | join(", ")' "$result")" --arg run "$RUN_URL" \
+                    --arg jira "$(jq -r .jira.site config/pipeline.json)/browse/$KEY" '
+            "Specification for [\($k)](\($jira)) written by the enrichment agent.\n\n" +
+            "- **Change:** \($s)\n- **Work type:** \($w)\n- **Risk:** \($r)\n- **Agent run:** \($run)\n\n" +
+            "Review the files in `specs/\($k)/`. To request changes, comment on the Jira card and drag it back to **Enrichment In Progress**. " +
+            "Approving the card in Jira (**Enrichment Approved**) merges this PR and the build uses exactly this version.\n\n" +
+            "Do not merge this PR by hand."')"
+          owner="${GITHUB_REPOSITORY%%/*}"
+          number="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?head=${owner}:${branch}&state=open" --jq '.[0].number // empty')"
+          if [[ -z "$number" ]]; then
+            number="$(jq -n --arg t "${KEY}: spec – ${summary}" --arg h "$branch" --arg b "$base" --arg body "$body" \
+              '{title: ($t | .[0:250]), head: $h, base: $b, body: $body}' \
+              | gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls" --input - --jq .number)"
+          else
+            jq -n --arg body "$body" '{body: $body}' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/pulls/${number}" --input - >/dev/null
+          fi
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${number}"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "Spec PR: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the Jira card
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          result="specs/${KEY}/enrichment.json"
+          risk="$(jq -r .riskLevel "$result")"
+          bash scripts/jira/set-description.sh "$KEY" "specs/${KEY}/enrichment.md" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${BRANCH}/"
+          bash scripts/jira/set-field.sh "$KEY" specPr "$PR_URL"
+          bash scripts/jira/set-field.sh "$KEY" riskLevel "$risk"
+          if [[ "$(jq -r .blockingQuestions "$result")" == "true" ]]; then
+            bash scripts/jira/comment.sh "$KEY" "$(printf '%s\n' \
+              "The enrichment agent needs answers before the spec can be finished. See Open Questions in the Description." \
+              "Answer in a comment, then drag the card back to Enrichment In Progress.")" "$PR_URL"
+            bash scripts/jira/transition.sh "$KEY" "$(jq -r .jira.statuses.needsInfo.name config/pipeline.json)"
+          else
+            bash scripts/jira/comment.sh "$KEY" "$(printf '%s\n' \
+              "Enrichment complete: $(jq -r .summary "$result")" \
+              "Risk: ${risk}. Review the AI Enrichment section and the spec PR, then drag the card to Enrichment Approved (or back to Enrichment In Progress with a comment to request changes).")" "$PR_URL"
+            bash scripts/jira/transition.sh "$KEY" "$(jq -r .jira.statuses.enriched.name config/pipeline.json)"
+          fi
           bash scripts/jira/release.sh "$KEY" --reset-attempts

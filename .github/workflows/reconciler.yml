@@ -6,7 +6,8 @@ name: reconciler
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Off the quarter-hour: GitHub delays or drops schedules at :00/:15/:30/:45 under load.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
