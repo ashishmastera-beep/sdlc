@@ -7,7 +7,7 @@ Drag a story to **Enrichment In Progress** and, within a few minutes, the card c
 | Where | What |
 | --- | --- |
 | Jira **Description** | `Original Story` (exactly what was written) — divider — `AI Enrichment`: Business Context, Scope, Acceptance Criteria (AC1…), Technical Notes, Risks, Open Questions, links to the full spec |
-| Jira **Attachments** | `<KEY>-Research-Specification.pdf` and `<KEY>-Technical-Specification.pdf`, badged **Draft – pending review**; replaced by **Approved – spec &lt;sha&gt;** versions when the card is approved. Re-runs replace files with the same name, never add duplicates. Which documents are attached is set in `config/pipeline.json` → `agents.jiraAttachments` (add `functional.md` / `test-plan.md` there if wanted). |
+| Jira **Attachments** | `<KEY>-Research-Specification.pdf`, `<KEY>-Technical-Specification.pdf` and `<KEY>-Implementation-Log.pdf`, badged **Draft – pending review**; replaced by **Approved – spec &lt;sha&gt;** versions when the card is approved. Re-runs replace files with the same name, never add duplicates. Which documents are attached is set in `config/pipeline.json` → `agents.jiraAttachments` (add `functional.md` / `test-plan.md` there if wanted). The Implementation Log grows as the story moves on; later stages re-attach it so the card always has the latest. |
 | Jira **Risk Level** | Low / Medium / High, set by the agent |
 | Jira **Spec PR** | Link to the pull request holding the full spec |
 | Repository `specs/<KEY>/` | `research.md`, `functional.md`, `technical.md`, `test-plan.md`, `implementation-log.md` (+ `enrichment.md/json`) — the versioned source of the PDFs |

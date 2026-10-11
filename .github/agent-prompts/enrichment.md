@@ -33,7 +33,7 @@ without guessing. You run unattended in CI: nobody will answer questions during 
 | `functional.md` | From `specs/_templates/functional.md`. Every section filled or "None". |
 | `technical.md` | From `specs/_templates/technical.md`. Name only components that exist (cite path) or are marked **NEW**. |
 | `test-plan.md` | From `specs/_templates/test-plan.md`. Every AC ID maps to at least one test. |
-| `implementation-log.md` | Create if missing with heading `# {{KEY}}: implementation log` and one entry `- {{DATE}} enrichment: spec written (Agent 1).` If it exists, append one dated line; never edit earlier lines. |
+| `implementation-log.md` | Create if missing from `specs/_templates/implementation-log.md` (replace `<KEY>: <summary>`, remove the example row). Append one table row: `\| {{DATE}} \| Enrichment \| Agent 1 \| <what you wrote, or what you changed on a rework and why> \| spec PR \|`. Never edit or delete earlier rows. |
 | `enrichment.md` | The Jira summary (format below). |
 | `enrichment.json` | Machine-readable result (format below). |
 
@@ -75,7 +75,7 @@ Mention sharing/CRUD/FLS approach and any data model change.>
 
 ### Specification
 
-Attached to this card as PDF: Research Specification and Technical Specification.
+Attached to this card as PDF: Research Specification, Technical Specification and Implementation Log.
 In the repository: [research](specs/{{KEY}}/research.md), [functional](specs/{{KEY}}/functional.md), [technical](specs/{{KEY}}/technical.md), [test plan](specs/{{KEY}}/test-plan.md).
 ```
 
