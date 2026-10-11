@@ -14,6 +14,9 @@ _lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIPELINE_CONFIG="${PIPELINE_CONFIG:-${_lib_dir}/../../config/pipeline.json}"
 JIRA_BASE_URL="${JIRA_BASE_URL:-$(jq -r '.jira.site // empty' "$PIPELINE_CONFIG" 2>/dev/null || true)}"
 
+# Marks comments written by the pipeline (see comment.sh / get-issue.sh).
+export PIPELINE_COMMENT_PREFIX="🤖 SDLC pipeline: "
+
 die() { echo "error: $*" >&2; exit 1; }
 warn() { echo "::warning::$*" >&2; }
 

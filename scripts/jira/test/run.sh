@@ -112,4 +112,14 @@ echo "v2 longer" > "$adir/SDLC-1-Technical-Specification.pdf"
 check "re-attach replaces same name"     '[[ "$(state "[.\"SDLC-1\".fields.attachment[] | select(.filename | test(\"Technical\"))] | length")" == 1 && "$(state ".\"SDLC-1\".fields.attachment | length")" == 2 ]]'
 check "attach rejects missing file"      '! "$scripts/attach.sh" SDLC-1 /nonexistent.pdf 2>/dev/null'
 
+# --- Pipeline comments are marked and hidden from the agent ---
+"$scripts/comment.sh" SDLC-1 "Spec approved." "https://github.com/o/r/actions/runs/9" >/dev/null
+check "pipeline comment is prefixed"     '[[ "$(state ".\"SDLC-1\".comments[-1].body.content[0].content[0].text")" == "🤖 SDLC pipeline: Spec approved." ]]'
+out="$("$scripts/get-issue.sh" SDLC-1)"
+curl -s -X POST "$JIRA_BASE_URL/rest/api/3/issue/SDLC-1/comment" -H "Content-Type: application/json" \
+  -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"PO: use a 45-day window instead."}]}]}}' >/dev/null
+out="$("$scripts/get-issue.sh" SDLC-1)"
+check "people's comments still reach agent" '[[ "$(jq -r ".comments[].body" <<<"$out")" == *"45-day window"* ]]'
+check "agent input has no pipeline notes" '[[ "$(jq "[.comments[] | select(.body | test(\"SDLC pipeline|actions/runs\"))] | length" <<<"$out")" == 0 ]]'
+
 echo; echo "$pass passed, $fail failed"; [[ $fail -eq 0 ]]
