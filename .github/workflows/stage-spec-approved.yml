@@ -1,9 +1,10 @@
 name: stage-spec-approved
 
 # Runs when a tech lead moves a card to "Enrichment Approved" (gate G2).
-# Records the exact spec version the build must use, then asks the reconciler to apply the WIP gate,
-# which moves the card to "Ready for Build" as soon as a build slot is free.
-# PHASE 4 STUB: the approved SHA is the current main. Phase 5 merges the spec PR and records its merge SHA.
+#   1. Merge the spec PR (Spec PR field) into main; its merge commit is the exact spec the build must use.
+#   2. Record it in Approved Spec SHA, mark the AI Enrichment section as approved (links now point at that commit).
+#   3. Ask the reconciler to apply the WIP gate: the card moves to Ready for Build when a build slot is free.
+# Cards without a Spec PR (created before Phase 5) fall back to the current main commit.
 
 on:
   workflow_call:
@@ -13,7 +14,8 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
   actions: write
 
 jobs:
@@ -28,11 +30,61 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Record the approved spec version
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Merge the spec PR
+        id: merge
         run: |
-          sha="$(git rev-parse --short=12 HEAD)"
-          bash scripts/jira/set-field.sh "$KEY" approvedSpecSha "$sha"
-          bash scripts/jira/comment.sh "$KEY" "Spec approved at commit ${sha}. The card moves to Ready for Build when a build slot is free." "$RUN_URL"
+          pr_url="$(bash scripts/jira/get-field.sh "$KEY" specPr)"
+          branch="$(jq -r .github.branchPrefixes.spec config/pipeline.json)${KEY}"
+          if [[ -z "$pr_url" ]]; then
+            sha="$(git rev-parse HEAD)"
+            echo "::warning::$KEY has no Spec PR; using the current main commit."
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"; echo "merged=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          [[ "$pr_url" =~ ^${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/([0-9]+)$ ]] \
+            || { echo "::error::Spec PR '$pr_url' is not a pull request in ${GITHUB_REPOSITORY}"; exit 1; }
+          number="${BASH_REMATCH[1]}"
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${number}")"
+          head="$(jq -r .head.ref <<<"$pr")"
+          [[ "$head" == "$branch" ]] || { echo "::error::Spec PR #$number is from '$head', expected '$branch'"; exit 1; }
+          if [[ "$(jq -r .merged <<<"$pr")" == "true" ]]; then
+            sha="$(jq -r .merge_commit_sha <<<"$pr")"
+            echo "Spec PR #$number was already merged."
+          elif [[ "$(jq -r .state <<<"$pr")" == "open" ]]; then
+            sha="$(jq -n --arg t "${KEY}: approved spec" --arg s "$(jq -r .head.sha <<<"$pr")" \
+                    '{merge_method: "squash", commit_title: $t, sha: $s}' \
+                  | gh api --method PUT "repos/${GITHUB_REPOSITORY}/pulls/${number}/merge" --input - --jq .sha)"
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" >/dev/null 2>&1 || true
+          else
+            echo "::error::Spec PR #$number is closed without being merged. Drag the card back to Enrichment In Progress to regenerate the spec."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"; echo "merged=true" >> "$GITHUB_OUTPUT"
+          echo "Spec PR #$number merged as \`${sha:0:12}\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record the approved spec in Jira
+        env:
+          SHA: ${{ steps.merge.outputs.sha }}
+          MERGED: ${{ steps.merge.outputs.merged }}
+        run: |
+          short="${SHA:0:12}"
+          bash scripts/jira/set-field.sh "$KEY" approvedSpecSha "$short"
+          if [[ "$MERGED" == "true" ]]; then
+            md="$RUNNER_TEMP/enrichment.md"
+            if gh api -H "Accept: application/vnd.github.raw" \
+                 "repos/${GITHUB_REPOSITORY}/contents/specs/${KEY}/enrichment.md?ref=${SHA}" > "$md" 2>/dev/null; then
+              sed -i "1s/Pending human review\./Approved on $(date -u +%Y-%m-%d) (spec ${short})./" "$md"
+              bash scripts/jira/set-description.sh "$KEY" "$md" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${SHA}/"
+            fi
+          fi
+          bash scripts/jira/comment.sh "$KEY" "Spec approved and merged at commit ${short}. The build uses exactly this version. The card moves to Ready for Build when a build slot is free." "$RUN_URL"
           bash scripts/jira/release.sh "$KEY" --reset-attempts
+
       - name: Apply the WIP gate now
         run: gh workflow run reconciler.yml --repo "$GITHUB_REPOSITORY" --ref "$(jq -r .github.defaultBranch config/pipeline.json)"

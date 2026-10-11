@@ -27,11 +27,18 @@ specs/<KEY>/              One folder per Jira issue (functional, technical, test
 config/pipeline.json      Jira statuses, transitions, field IDs, limits, org aliases
 scripts/jira/             Jira REST helpers used by the workflows
 scripts/sf/               Salesforce CLI helpers used by the workflows
+scripts/agents/           Agent runners and output validators
 .github/copilot-instructions.md   Rules every Copilot agent follows
 .github/instructions/     Path-specific rules (Apex, LWC, Flow, metadata, specs)
 .github/skills/           Salesforce agent skills (forcedotcom/sf-skills, pinned) + org-* skills
+.github/agent-prompts/    Instructions for the pipeline agents (enrichment, …)
 .github/workflows/        Pipelines and agents
 ```
+
+## Guides
+
+- [Connecting Jira and GitHub](docs/jira-setup.md)
+- [Enrichment agent](docs/enrichment-agent.md)
 
 ## Baseline (do this before any agent work)
 

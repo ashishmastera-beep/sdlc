@@ -57,7 +57,12 @@ jobs:
       - name: LWC Jest
         run: npm run test:unit:coverage
       - name: Pipeline script tests
-        run: bash scripts/jira/test/run.sh
+        run: |
+          bash scripts/jira/test/run.sh
+          bash scripts/agents/test/run.sh
+          node --test scripts/jira/test/description.test.mjs
+      - name: Shell script lint
+        run: shellcheck -S warning scripts/jira/*.sh scripts/jira/test/run.sh scripts/agents/*.sh scripts/agents/test/run.sh scripts/sf/*.sh
       - id: src
         run: bash scripts/sf/has-source.sh
       - name: Install Salesforce CLI and Code Analyzer

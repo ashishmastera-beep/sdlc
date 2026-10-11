@@ -17,7 +17,17 @@ flatten='def txt: if type == "string" then . elif type == "object" then
             + (if (.type == "paragraph" or .type == "heading" or .type == "listItem") then "\n" else "" end))
          elif type == "array" then map(txt) | join("") else "" end;'
 
-jq -n --argjson i "$issue" --argjson c "$comments" --arg ac "$ac" --arg risk "$risk" "$flatten"'
+# Description = the product owner's Original Story only. A previous AI Enrichment section (same rules as
+# description.mjs) is dropped so the agent never treats its own earlier output as requirements.
+original='def htxt: ((.content // []) | map(.text // "") | join("") | ascii_downcase | gsub("^\\s+|\\s+$"; ""));
+          def original: if type != "object" then . else
+            (.content // []) as $c
+            | ([$c | to_entries[] | select(.value.type == "heading" and (.value | htxt) == "ai enrichment") | .key] | first) as $cut
+            | (if $cut == null then $c else $c[:$cut] end)
+            | (if (.[0].type == "heading" and (.[0] | htxt) == "original story") then .[1:] else . end)
+            | {type: "doc", content: .} end;'
+
+jq -n --argjson i "$issue" --argjson c "$comments" --arg ac "$ac" --arg risk "$risk" "$flatten$original"'
 {
   key: $i.key,
   summary: $i.fields.summary,
@@ -26,7 +36,7 @@ jq -n --argjson i "$issue" --argjson c "$comments" --arg ac "$ac" --arg risk "$r
   priority: ($i.fields.priority.name // null),
   labels: $i.fields.labels,
   riskLevel: ($i.fields[$risk].value // null),
-  description: (($i.fields.description // "") | txt),
+  description: (($i.fields.description // "") | original | txt | gsub("^\\s+|\\s+$"; "")),
   acceptanceCriteria: (($i.fields[$ac] // "") | txt),
   comments: [ $c.comments[] | {author: .author.displayName, created: .created, body: (.body | txt)} ]
 }'
