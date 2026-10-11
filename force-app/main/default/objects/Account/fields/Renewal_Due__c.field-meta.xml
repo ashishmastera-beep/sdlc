@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Renewal_Due__c</fullName>
+    <description>Indicates whether the Account contract ends between today and 30 days from today, inclusive.</description>
+    <formula><![CDATA[AND(NOT(ISBLANK(Contract_End_Date__c)), Contract_End_Date__c >= TODAY(), Contract_End_Date__c <= TODAY() + 30)]]></formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <inlineHelpText>Checked when the contract end date is today or within the next 30 days.</inlineHelpText>
+    <label>Renewal Due</label>
+    <type>Checkbox</type>
+</CustomField>
