@@ -139,6 +139,17 @@
       "model": "",
       "timeoutMinutes": 30,
       "maxAttempts": 2
-    }
+    },
+    "markedVersion": "18.0.13",
+    "jiraAttachments": [
+      {
+        "file": "research.md",
+        "title": "Research Specification"
+      },
+      {
+        "file": "technical.md",
+        "title": "Technical Specification"
+      }
+    ]
   }
 }

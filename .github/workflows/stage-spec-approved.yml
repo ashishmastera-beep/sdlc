@@ -2,7 +2,8 @@ name: stage-spec-approved
 
 # Runs when a tech lead moves a card to "Enrichment Approved" (gate G2).
 #   1. Merge the spec PR (Spec PR field) into main; its merge commit is the exact spec the build must use.
-#   2. Record it in Approved Spec SHA, mark the AI Enrichment section as approved (links now point at that commit).
+#   2. Record it in Approved Spec SHA, mark the AI Enrichment section as approved (links now point at that commit),
+#      and replace the Draft spec PDFs on the card with Approved ones.
 #   3. Ask the reconciler to apply the WIP gate: the card moves to Ready for Build when a build slot is free.
 # Cards without a Spec PR (created before Phase 5) fall back to the current main commit.
 
@@ -68,6 +69,10 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"; echo "merged=true" >> "$GITHUB_OUTPUT"
           echo "Spec PR #$number merged as \`${sha:0:12}\`." >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Install the PDF renderer
+        if: steps.merge.outputs.merged == 'true'
+        run: npm install -g "marked@$(jq -r .agents.markedVersion config/pipeline.json)"
+
       - name: Record the approved spec in Jira
         env:
           SHA: ${{ steps.merge.outputs.sha }}
@@ -82,6 +87,14 @@ jobs:
               sed -i "1s/Pending human review\./Approved on $(date -u +%Y-%m-%d) (spec ${short})./" "$md"
               bash scripts/jira/set-description.sh "$KEY" "$md" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${SHA}/"
             fi
+            # Replace the Draft PDFs with the approved versions.
+            specs="$RUNNER_TEMP/approved-specs"; mkdir -p "$specs"
+            for f in $(jq -r '.agents.jiraAttachments[].file' config/pipeline.json); do
+              gh api -H "Accept: application/vnd.github.raw" \
+                "repos/${GITHUB_REPOSITORY}/contents/specs/${KEY}/${f}?ref=${SHA}" > "$specs/$f" 2>/dev/null || rm -f "$specs/$f"
+            done
+            bash scripts/agents/attach-specs.sh "$KEY" "$specs" "Approved – spec ${short}" \
+              || echo "::warning::Could not attach the approved spec PDFs."
           fi
           bash scripts/jira/comment.sh "$KEY" "Spec approved and merged at commit ${short}. The build uses exactly this version. The card moves to Ready for Build when a build slot is free." "$RUN_URL"
           bash scripts/jira/release.sh "$KEY" --reset-attempts

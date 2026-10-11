@@ -103,4 +103,13 @@ out="$("$scripts/get-issue.sh" SDLC-1)"
 check "agent sees only the original"     '[[ "$(jq -r .description <<<"$out")" == *"contract end date"* && "$(jq -r .description <<<"$out")" != *"Second pass"* ]]'
 check "set-description needs a file"     '! "$scripts/set-description.sh" SDLC-1 /nonexistent 2>/dev/null'
 
+# --- Attachments: replace by file name ---
+adir="$(mktemp -d)"; echo "v1" > "$adir/SDLC-1-Technical-Specification.pdf"; echo "r" > "$adir/SDLC-1-Research-Specification.pdf"
+"$scripts/attach.sh" SDLC-1 "$adir/SDLC-1-Technical-Specification.pdf" "$adir/SDLC-1-Research-Specification.pdf" >/dev/null
+check "attach uploads both files"        '[[ "$(state ".\"SDLC-1\".fields.attachment | length")" == 2 ]]'
+echo "v2 longer" > "$adir/SDLC-1-Technical-Specification.pdf"
+"$scripts/attach.sh" SDLC-1 "$adir/SDLC-1-Technical-Specification.pdf" >/dev/null
+check "re-attach replaces same name"     '[[ "$(state "[.\"SDLC-1\".fields.attachment[] | select(.filename | test(\"Technical\"))] | length")" == 1 && "$(state ".\"SDLC-1\".fields.attachment | length")" == 2 ]]'
+check "attach rejects missing file"      '! "$scripts/attach.sh" SDLC-1 /nonexistent.pdf 2>/dev/null'
+
 echo; echo "$pass passed, $fail failed"; [[ $fail -eq 0 ]]

@@ -104,6 +104,9 @@ def search(query):
     return {"issues": out[:mx]}
 
 
+ATTACH = {"n": 0}
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -148,6 +151,14 @@ class H(BaseHTTPRequestHandler):
         key, sub = self._issue()
         if not key:
             return
+        if sub == "/attachments":
+            if self.headers.get("X-Atlassian-Token") != "no-check":
+                return self._send(403, {"errorMessages": ["XSRF check failed"]})
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            name = re.search(rb'filename="([^"]+)"', raw).group(1).decode()
+            ATTACH["n"] += 1
+            ISSUES[key]["fields"].setdefault("attachment", []).append({"id": str(ATTACH["n"]), "filename": name, "size": len(raw)})
+            return self._send(200, [{"id": str(ATTACH["n"]), "filename": name}])
         i, b = ISSUES[key], self._body()
         if sub == "/transitions":
             avail = [t for t in PATH[i["status"]] + [S["blocked"]] if t != i["status"]]
@@ -173,7 +184,15 @@ class H(BaseHTTPRequestHandler):
             ISSUES[key]["fields"][k] = v
         self._send(204)
 
-    def do_DELETE(self):  # used by tests to inspect state
+    def do_DELETE(self):  # /rest/api/3/attachment/{id}; any other path dumps state for the tests
+        m = re.match(r"^/rest/api/3/attachment/(\d+)$", self.path)
+        if m:
+            for i in ISSUES.values():
+                before = len(i["fields"].get("attachment", []))
+                i["fields"]["attachment"] = [a for a in i["fields"].get("attachment", []) if a["id"] != m.group(1)]
+                if len(i["fields"]["attachment"]) < before:
+                    return self._send(204)
+            return self._send(404)
         self._send(200, ISSUES)
 
 

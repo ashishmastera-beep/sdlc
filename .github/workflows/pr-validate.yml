@@ -35,7 +35,7 @@ jobs:
         run: |
           if [[ "$TITLE" =~ ^SDLC-[0-9]+:\  ]]; then echo "Jira key found in title"; exit 0; fi
           if [[ ",$LABELS," == *",no-jira,"* ]]; then
-            touched="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename' | grep -E '^(force-app|specs)/' || true)"
+            touched="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename' | grep -E '^(force-app|specs)/' | grep -v '^specs/_templates/' || true)"
             if [[ -z "$touched" ]]; then echo "no-jira label on a pipeline-only change"; exit 0; fi
             echo "::error::'no-jira' is only allowed when the PR does not touch force-app/ or specs/:"; echo "$touched"; exit 1
           fi

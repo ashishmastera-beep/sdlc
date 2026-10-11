@@ -18,8 +18,9 @@ without guessing. You run unattended in CI: nobody will answer questions during 
 
 ## What to do
 
-1. Read the story, then explore `force-app/` to find what already exists (objects, fields, classes, triggers,
-   flows, LWCs, permission sets). Base every technical statement on what you actually found and cite paths.
+1. Read the story, then research `force-app/` to find what already exists (objects, fields, classes, triggers,
+   flows, LWCs, permission sets) and what the change would affect. Record this in `research.md` first; base
+   every later technical statement on what you actually found and cite paths.
 2. Classify the work type: one or more of Apex change, LWC change, Flow change, Data model change,
    Security change, Configuration change.
 3. Write the files below. Do not create or change anything else.
@@ -28,6 +29,7 @@ without guessing. You run unattended in CI: nobody will answer questions during 
 
 | File | Content |
 | --- | --- |
+| `research.md` | From `specs/_templates/research.md`: what exists today, dependencies and impact, options considered and the decision, standards applied, assumptions. |
 | `functional.md` | From `specs/_templates/functional.md`. Every section filled or "None". |
 | `technical.md` | From `specs/_templates/technical.md`. Name only components that exist (cite path) or are marked **NEW**. |
 | `test-plan.md` | From `specs/_templates/test-plan.md`. Every AC ID maps to at least one test. |
@@ -73,7 +75,8 @@ Mention sharing/CRUD/FLS approach and any data model change.>
 
 ### Specification
 
-Full spec in the repository: [functional](specs/{{KEY}}/functional.md), [technical](specs/{{KEY}}/technical.md), [test plan](specs/{{KEY}}/test-plan.md).
+Attached to this card as PDF: Research Specification and Technical Specification.
+In the repository: [research](specs/{{KEY}}/research.md), [functional](specs/{{KEY}}/functional.md), [technical](specs/{{KEY}}/technical.md), [test plan](specs/{{KEY}}/test-plan.md).
 ```
 
 Rules for `enrichment.md`: only the Markdown shown above (headings, paragraphs, `*` bullets indented by 4

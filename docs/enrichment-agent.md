@@ -7,9 +7,10 @@ Drag a story to **Enrichment In Progress** and, within a few minutes, the card c
 | Where | What |
 | --- | --- |
 | Jira **Description** | `Original Story` (exactly what was written) — divider — `AI Enrichment`: Business Context, Scope, Acceptance Criteria (AC1…), Technical Notes, Risks, Open Questions, links to the full spec |
+| Jira **Attachments** | `<KEY>-Research-Specification.pdf` and `<KEY>-Technical-Specification.pdf`, badged **Draft – pending review**; replaced by **Approved – spec &lt;sha&gt;** versions when the card is approved. Re-runs replace files with the same name, never add duplicates. Which documents are attached is set in `config/pipeline.json` → `agents.jiraAttachments` (add `functional.md` / `test-plan.md` there if wanted). |
 | Jira **Risk Level** | Low / Medium / High, set by the agent |
 | Jira **Spec PR** | Link to the pull request holding the full spec |
-| Repository `specs/<KEY>/` | `functional.md`, `technical.md`, `test-plan.md`, `implementation-log.md` (+ `enrichment.md/json`) |
+| Repository `specs/<KEY>/` | `research.md`, `functional.md`, `technical.md`, `test-plan.md`, `implementation-log.md` (+ `enrichment.md/json`) — the versioned source of the PDFs |
 | Jira comment | One-line summary and next step |
 
 The card lands in **Enrichment Completed**, or in **Needs Info** if the agent hit a question it cannot answer with a sensible default.
@@ -37,6 +38,7 @@ Without the secret the workflow falls back to the built-in Actions token, which 
 ## Safety
 
 - Story text is treated as data. The agent runs with no Jira or GitHub write credentials in its environment, cannot run `git push`, `gh`, `curl`, `sf` or package installs, and may only change `specs/<KEY>/`. A validator rejects anything else before it is committed (one automatic retry with the findings, then the card goes to **Blocked**).
+- The PDFs are rendered with raw HTML escaped and a page policy that blocks scripts and network loads, so story text cannot inject content into them.
 - Every run uploads the agent transcript as an artifact (`enrichment-<KEY>-<attempt>`, kept 30 days).
 - Instructions live in [`.github/agent-prompts/enrichment.md`](../.github/agent-prompts/enrichment.md); change them by PR. The CLI version and model are in `config/pipeline.json` → `agents`.
 
