@@ -27,21 +27,36 @@ layouts_json="$(sf org list metadata --metadata-type Layout --target-org "$alias
   || { echo "::warning::could not list layouts in the org"; echo "Layouts could not be listed." >> "$readme"; exit 0; }
 
 printf '## Page layouts\n\n| Object | Layout | File |\n| --- | --- | --- |\n' >> "$readme"
+# Org metadata names are URL-encoded ("Account-Account %28Sales%29 Layout"), which is also the source-format file
+# name. The CLI usually wants that form; some versions want the decoded one, so both are tried.
+decode() { python3 -I -c 'import sys, urllib.parse as u; print(u.unquote(sys.argv[1]))' "$1"; }
 count=0
 for obj in "${objects[@]}"; do
   mapfile -t names < <(jq -r --arg o "$obj-" '.result // [] | if type=="object" then [.] else . end
                          | .[] | .fullName | select(startswith($o))' <<<"$layouts_json" | sort | head -10)
-  for name in "${names[@]}"; do
+  for encoded in "${names[@]}"; do
+    name="$(decode "$encoded")"
     tmp="$(mktemp -d)"
-    if sf project retrieve start --metadata "Layout:${name}" --target-org "$alias" --output-dir "$tmp" --json >/dev/null 2>&1; then
-      file="$(find "$tmp" -name '*.layout-meta.xml' | head -1)"
+    # Metadata-API format retrieve (zip, unzipped): the layout XML is the same as source format.
+    res=""; ok=false
+    for member in "$encoded" "$name"; do
+      if res="$(sf project retrieve start --metadata "Layout:${member}" --target-org "$alias" \
+                  --target-metadata-dir "$tmp" --unzip --json 2>&1)" \
+         && [[ -n "$(find "$tmp" -name '*.layout' | head -1)" ]]; then ok=true; break; fi
+      [[ "$encoded" == "$name" ]] && break
+    done
+    if $ok; then
+      file="$(find "$tmp" -name '*.layout' | head -1)"
       if [[ -n "$file" ]]; then
-        cp "$file" "$out/layouts/${name}.layout-meta.xml"
-        printf '| %s | %s | `layouts/%s.layout-meta.xml` |\n' "$obj" "$name" "$name" >> "$readme"
+        cp "$file" "$out/layouts/${encoded}.layout-meta.xml"
+        printf '| %s | %s | `layouts/%s.layout-meta.xml` |\n' "$obj" "$name" "$encoded" >> "$readme"
         count=$((count + 1))
+      else
+        echo "::warning::layout '$name' retrieved but no file found"
       fi
     else
-      echo "::warning::could not retrieve layout '$name'"
+      msg="$(jq -r '.message // empty' <<<"$res" 2>/dev/null)"
+      echo "::warning::could not retrieve layout '$name': ${msg:-${res:0:300}}"
     fi
     rm -rf "$tmp"
   done
