@@ -21,7 +21,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  copilot-requests: write
 
 jobs:
   enrich:
@@ -66,8 +65,8 @@ jobs:
       - name: Run the enrichment agent
         timeout-minutes: 35
         env:
-          # A fine-grained token with the "Copilot Requests" permission. Falls back to the workflow token.
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN || github.token }}
+          # A fine-grained token with only the "Copilot Requests" permission (never the workflow token: the agent sees it).
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           AGENT_LOG_DIR: ${{ runner.temp }}/agent-logs
         run: bash scripts/agents/run-enrichment.sh "$KEY" "$RUNNER_TEMP/issue.json"
 

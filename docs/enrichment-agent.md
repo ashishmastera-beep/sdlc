@@ -33,7 +33,7 @@ The agent runs the GitHub Copilot CLI inside GitHub Actions and uses your Copilo
 3. **Permissions → Account permissions → Copilot Requests: Read-only** (this is the only permission).
 4. Repo **Settings → Secrets and variables → Actions → New repository secret**: `COPILOT_GITHUB_TOKEN` = the token.
 
-Without the secret the workflow falls back to the built-in Actions token, which only works where an organisation enables "Copilot CLI billed to the organization".
+The secret is required: the agents never get the workflow's own GitHub token, because they run shell commands and that token can push code.
 
 ## Safety
 

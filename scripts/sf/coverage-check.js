@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // coverage-check.js RESULT_JSON BASE_REF
 // Fails (exit 1) if any Apex class changed since BASE_REF has coverage below limits.coverageMin.
+// BASE_REF "WORKTREE" means: classes changed in the uncommitted working tree (used by the build agent's
+// org validation, which runs before anything is committed).
 // Test classes (@IsTest) are skipped. A changed non-test class with no coverage data also fails.
 'use strict';
 const fs = require('fs');
@@ -8,8 +10,15 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 function changedClasses(baseRef, root) {
-  const out = execFileSync('git', ['diff', '--name-only', '--diff-filter=AMR', `${baseRef}...HEAD`, '--', 'force-app'], { cwd: root, encoding: 'utf8' });
-  return out.split('\n').filter((f) => f.endsWith('.cls'));
+  const git = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  let out;
+  if (baseRef === 'WORKTREE') {
+    out = git(['diff', '--name-only', '--diff-filter=AMR', 'HEAD', '--', 'force-app'])
+      + git(['ls-files', '--others', '--exclude-standard', '--', 'force-app']);
+  } else {
+    out = git(['diff', '--name-only', '--diff-filter=AMR', `${baseRef}...HEAD`, '--', 'force-app']);
+  }
+  return [...new Set(out.split('\n'))].filter((f) => f.endsWith('.cls'));
 }
 
 function isTestClass(file) {

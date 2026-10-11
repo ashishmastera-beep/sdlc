@@ -3,7 +3,7 @@
 # check_script is read inside check()'s eval strings.
 # shellcheck disable=SC2034,SC2016
 set -uo pipefail
-here="$(cd "$(dirname "$0")" && pwd)"; check_script="$here/../check-enrichment.sh"
+here="$(cd "$(dirname "$0")" && pwd)"; check_script="$here/../check-enrichment.sh"; build_check="$here/../check-build.sh"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 cd "$work" && git init -q && git config user.email t@t && git config user.name t
 mkdir -p force-app && echo x > force-app/a.txt && git add -A && git commit -qm init
@@ -36,5 +36,43 @@ good; echo 'token github_pat_ABC' >> specs/SDLC-9/technical.md; check "secret fa
 good; echo '<KEY>' >> specs/SDLC-9/technical.md; check "template placeholder fails"     '! bash "$check_script" SDLC-9'
 good; head -c 9000 /dev/zero | tr '\0' a >> specs/SDLC-9/enrichment.md; check "oversize fails" '! bash "$check_script" SDLC-9'
 check "bad key rejected"                         '! bash "$check_script" "../x"'
+
+# --- check-build.sh ---
+rm -rf specs .github; git checkout -q -- . 2>/dev/null; git clean -qfd
+mkdir -p specs/SDLC-9 && printf '| AC1 |\n| AC2 |\n' > specs/SDLC-9/functional.md
+printf '| Date | Stage |\n| --- | --- |\n| d | Enrichment |\n' > specs/SDLC-9/implementation-log.md
+mkdir -p force-app/main/default/layouts && cat > force-app/main/default/layouts/.keep <<<''
+git add -A && git commit -qm spec
+printf '.pipeline-input/\n.pipeline-output/\n' >> .git/info/exclude
+L='<?xml version="1.0" encoding="UTF-8"?><Layout xmlns="http://soap.sforce.com/2006/04/metadata"><layoutSections><layoutColumns><layoutItems><field>Name</field></layoutItems><layoutItems><field>Phone</field></layoutItems></layoutColumns></layoutSections></Layout>'
+built() {
+  git checkout -q -- . ; git clean -qfd -e .pipeline-input
+  mkdir -p force-app/main/default/objects/Account/fields .pipeline-output .pipeline-input/org/layouts
+  echo '<?xml version="1.0" encoding="UTF-8"?><CustomField xmlns="http://soap.sforce.com/2006/04/metadata"><fullName>X__c</fullName></CustomField>' \
+    > force-app/main/default/objects/Account/fields/X__c.field-meta.xml
+  echo '| 2026-10-11 | Build | Agent 2 | built | build PR |' >> specs/SDLC-9/implementation-log.md
+  printf '## Acceptance criteria\n| AC1 | x | t |\n| AC2 | y | t |\n' > .pipeline-output/pr.md
+  echo "$L" > .pipeline-input/org/layouts/Account-Account\ Layout.layout-meta.xml
+}
+built;                                                  check "build: valid output passes"        'bash "$build_check" SDLC-9'
+built; echo x > README.md;                              check "build: file outside paths fails"   '! bash "$build_check" SDLC-9'
+built; mkdir -p force-app/main/default/profiles; echo '<a/>' > force-app/main/default/profiles/Admin.profile-meta.xml
+                                                        check "build: profile change fails"       '! bash "$build_check" SDLC-9'
+built; echo '| x | y |' > specs/SDLC-9/functional.md;   check "build: spec edit fails"            '! bash "$build_check" SDLC-9'
+built; sed -i '3d' specs/SDLC-9/implementation-log.md;  check "build: log rewrite fails"          '! bash "$build_check" SDLC-9'
+built; echo '<CustomField><broken>' > force-app/main/default/objects/Account/fields/X__c.field-meta.xml
+                                                        check "build: bad XML fails"              '! bash "$build_check" SDLC-9'
+built; mkdir -p force-app/main/default/classes; printf 'public class Svc {}' > force-app/main/default/classes/Svc.cls; echo '<a/>' > force-app/main/default/classes/Svc.cls-meta.xml
+                                                        check "build: Apex without test fails"    '! bash "$build_check" SDLC-9'
+printf '@IsTest private class SvcTest {}' > force-app/main/default/classes/SvcTest.cls; echo '<a/>' > force-app/main/default/classes/SvcTest.cls-meta.xml
+                                                        check "build: Apex with test passes"      'bash "$build_check" SDLC-9'
+built; mkdir -p force-app/main/default/classes; printf "@IsTest class T { Id a = '001000000000001AAA'; }" > force-app/main/default/classes/T.cls; echo '<a/>' > force-app/main/default/classes/T.cls-meta.xml
+                                                        check "build: hard-coded Id fails"        '! bash "$build_check" SDLC-9'
+built; sed -i '/AC2/d' .pipeline-output/pr.md;          check "build: PR missing AC2 fails"       '! bash "$build_check" SDLC-9'
+built; echo "${L/<field>Phone<\/field>/}" > "force-app/main/default/layouts/Account-Account Layout.layout-meta.xml"
+                                                        check "build: layout dropping a field fails" '! bash "$build_check" SDLC-9'
+built; echo "${L/<field>Phone<\/field>/<field>Phone<\/field></layoutItems><layoutItems><field>X__c<\/field>}" > "force-app/main/default/layouts/Account-Account Layout.layout-meta.xml"
+                                                        check "build: layout adding a field passes" 'bash "$build_check" SDLC-9'
+built; rm -rf force-app/main/default/objects;           check "build: no metadata fails"          '! bash "$build_check" SDLC-9'
 
 echo; echo "$pass passed, $fail failed"; [[ $fail -eq 0 ]]

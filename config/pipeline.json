@@ -154,6 +154,10 @@
         "file": "implementation-log.md",
         "title": "Implementation Log"
       }
-    ]
+    ],
+    "build": {
+      "model": "",
+      "fixRounds": 2
+    }
   }
 }

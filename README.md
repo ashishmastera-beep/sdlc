@@ -39,6 +39,7 @@ scripts/agents/           Agent runners and output validators
 
 - [Connecting Jira and GitHub](docs/jira-setup.md)
 - [Enrichment agent](docs/enrichment-agent.md)
+- [Build agent](docs/build-agent.md)
 
 ## Baseline (do this before any agent work)
 
