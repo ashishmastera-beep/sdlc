@@ -1,0 +1,10 @@
+{
+  "workType": [
+    "Data model change",
+    "Security change",
+    "Configuration change"
+  ],
+  "riskLevel": "High",
+  "blockingQuestions": false,
+  "summary": "Add an Account contract end date, formula-driven renewal-due flag, and permission-set field access on existing assigned Account layouts."
+}
