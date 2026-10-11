@@ -59,10 +59,16 @@ jobs:
         id: claim
         env:
           REASON: ${{ steps.guard.outputs.reason }}
+          SOURCE: ${{ github.event.client_payload.source }}
         run: |
           if [[ "${{ steps.guard.outputs.proceed }}" != "true" ]]; then
             echo "Skipped: $REASON" >> "$GITHUB_STEP_SUMMARY"
             echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # A person moving the card in Jira is a deliberate retry: start a fresh retry budget.
+          # Automatic re-dispatches (source=pipeline, from the reconciler) keep counting toward the limit.
+          if [[ "$SOURCE" == "jira" ]]; then
+            bash scripts/jira/set-field.sh "${{ steps.key.outputs.key }}" agentAttempts 0
           fi
           set +e; bash scripts/jira/claim.sh "${{ steps.key.outputs.key }}" "$RUN_URL"; rc=$?; set -e
           if [[ $rc -eq 3 ]]; then echo "Retry limit reached; card moved to Blocked." >> "$GITHUB_STEP_SUMMARY"; echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; fi

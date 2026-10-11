@@ -73,6 +73,8 @@ GitHub answers a successful dispatch with **HTTP 204**. Check the rule's **Audit
 | `403` *Resource not accessible by personal access token* | Token lacks the permission | Edit the token: Repository access includes `sdlc`, **Contents: Read and write**. The token value does not change, so the rules need no edit |
 | `404` | Token cannot see the repository | Resource owner / repository access is wrong |
 
+**Retry limit:** each stage gets 3 automatic attempts (reconciler retries); after that the card goes to **Blocked**. Moving the card yourself in Jira (e.g. **Blocked → Enrichment In Progress**) is a deliberate retry and starts a fresh count.
+
 A card whose dispatch failed keeps **Agent State = Queued**; the reconciler re-dispatches it within 15 minutes once the token is fixed. To retry at once, move it **Enrichment In Progress → Needs Info → Enrichment In Progress**.
 
 ## 4. Test the loop (Phase 4 acceptance)
