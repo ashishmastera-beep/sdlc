@@ -12,7 +12,9 @@ You run unattended in CI: nobody will answer questions during the run.
 - `.pipeline-input/org/`: read-only copies of existing org metadata the spec touches (for example the object's
   page layouts), retrieved from the org for you. `.pipeline-input/org/README.md` lists what is there. When the spec
   says to change an existing component (such as a layout), copy it from here into `force-app/main/default/…`
-  and edit the copy; keep everything already in it.
+  and edit the copy; keep everything already in it. Keep the file name exactly as it is, including encoded
+  characters (`Account-Account %28Sales%29 Layout.layout-meta.xml`). The README also lists which profiles use
+  which layout: change the layouts used by the audiences named in the spec.
 - `.github/copilot-instructions.md` and `.github/instructions/*.instructions.md`: org rules. They apply.
 - `.github/skills/*/SKILL.md`: Salesforce skills (custom fields, permission sets, Apex, tests, LWC, flows, layouts).
   Read the ones that match each metadata type before writing it, and follow them.
