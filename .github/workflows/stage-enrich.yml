@@ -1,0 +1,36 @@
+name: stage-enrich
+
+# Enrichment stage, called by jira-router after the card is claimed.
+# PHASE 4 STUB: proves the Jira -> GitHub -> Jira loop without AI.
+# Phase 5 replaces the "Enrichment" step with Agent 1 (writes specs/<KEY>/ and opens a spec PR).
+
+on:
+  workflow_call:
+    inputs:
+      issue_key:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  enrich:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      KEY: ${{ inputs.issue_key }}
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Enrichment (stub)
+        run: |
+          bash scripts/jira/get-issue.sh "$KEY" > issue.json
+          jq -r '"Read \(.key): \(.summary) [\(.status)]"' issue.json
+          bash scripts/jira/comment.sh "$KEY" "Enrichment stage ran (pipeline test stub). In Phase 5 the enrichment agent writes the functional and technical spec here." "$RUN_URL"
+      - name: Hand over for spec review
+        run: |
+          bash scripts/jira/transition.sh "$KEY" "$(jq -r .jira.statuses.enriched.name config/pipeline.json)"
+          bash scripts/jira/release.sh "$KEY" --reset-attempts

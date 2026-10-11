@@ -1,0 +1,68 @@
+name: pr-sync
+
+# Mirrors pull request events onto the Jira card named in the PR title ("SDLC-12: ...").
+#   PR opened / ready for review  -> In Build   => PR Created  (Build PR field set)
+#   review approved                -> PR Created => Approved
+#   PR merged                      -> PR Created => Approved   (merging implies approval)
+# Spec PRs (branch spec/*) are handled by the enrichment stage, not here.
+# Jira problems never fail this workflow; they show as warnings.
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened, closed]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.event.pull_request.head.ref, 'spec/') &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      TITLE: ${{ github.event.pull_request.title }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      EVENT: ${{ github.event_name }}
+      ACTION: ${{ github.event.action }}
+      MERGED: ${{ github.event.pull_request.merged }}
+      REVIEW_STATE: ${{ github.event.review.state }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Jira key from the PR title
+        id: key
+        run: |
+          project="$(jq -r .jira.projectKey config/pipeline.json)"
+          if [[ "$TITLE" =~ ^(${project}-[0-9]+): ]]; then echo "key=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT";
+          else echo "No Jira key in the PR title; nothing to sync."; fi
+      - name: Sync to Jira
+        if: steps.key.outputs.key != ''
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          s() { jq -r ".jira.statuses.$1.name" config/pipeline.json; }
+          case "$EVENT:$ACTION" in
+            pull_request:opened|pull_request:ready_for_review|pull_request:reopened)
+              bash scripts/jira/sync-keys.sh --from "$(s inBuild)" --to "$(s prCreated)" \
+                --set "buildPr=$PR_URL" --comment "Pull request opened." --url "$PR_URL" "$KEY" ;;
+            pull_request_review:submitted)
+              if [[ "$REVIEW_STATE" == "approved" ]]; then
+                bash scripts/jira/sync-keys.sh --from "$(s prCreated)" --to "$(s approved)" \
+                  --comment "Pull request approved." --url "$PR_URL" "$KEY"
+              fi ;;
+            pull_request:closed)
+              if [[ "$MERGED" == "true" ]]; then
+                bash scripts/jira/sync-keys.sh --from "$(s prCreated),$(s inBuild)" --to "$(s prCreated),$(s approved)" \
+                  --comment "Pull request merged to main." --url "$PR_URL" "$KEY"
+              fi ;;
+          esac

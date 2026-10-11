@@ -2,18 +2,23 @@
 # Shared helpers for Jira REST calls. Source this file; do not run it.
 #
 # Required environment:
-#   JIRA_BASE_URL   e.g. https://ashishmastera.atlassian.net
 #   JIRA_USER       service account email
 #   JIRA_API_TOKEN  service account API token
 # Optional:
+#   JIRA_BASE_URL   defaults to .jira.site in config/pipeline.json
 #   PIPELINE_CONFIG path to config/pipeline.json (default: repo root config)
 
 set -euo pipefail
 
 _lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIPELINE_CONFIG="${PIPELINE_CONFIG:-${_lib_dir}/../../config/pipeline.json}"
+JIRA_BASE_URL="${JIRA_BASE_URL:-$(jq -r '.jira.site // empty' "$PIPELINE_CONFIG" 2>/dev/null || true)}"
 
 die() { echo "error: $*" >&2; exit 1; }
+warn() { echo "::warning::$*" >&2; }
+
+# jira_configured -> 0 when Jira credentials are present. Lets sync steps skip cleanly before setup.
+jira_configured() { [[ -n "${JIRA_USER:-}" && -n "${JIRA_API_TOKEN:-}" && -n "${JIRA_BASE_URL:-}" ]]; }
 
 require_env() {
   local v
@@ -76,6 +81,26 @@ adf_text() {
             [{type: "paragraph", content: [{type: "text", text: $u, marks: [{type: "link", attrs: {href: $u}}]}]}]
           end)
       ) }'
+}
+
+# cf FIELD_KEY -> JQL reference for a configured custom field, e.g. cf[10109]
+cf() { local id; id="$(field_id "$1")"; echo "cf[${id#customfield_}]"; }
+
+# jira_search JQL [FIELDS] [MAX] -> JSON array of issues {key, fields}
+jira_search() {
+  local jql="$1" fields="${2:-status}" max="${3:-50}" q
+  q="$(jq -rn --arg j "$jql" --arg f "$fields" --arg m "$max" '"jql=\($j|@uri)&fields=\($f|@uri)&maxResults=\($m)"')"
+  jira_api GET "/rest/api/3/search/jql?${q}" | jq -c '.issues // []'
+}
+
+# dispatch_event EVENT_TYPE KEY -> starts the jira-router workflow for KEY (needs GH_TOKEN with contents:write).
+dispatch_event() {
+  local ev="$1" key="$2"
+  require_key "$key"
+  jq -e --arg e "$ev" '.github.events | index($e)' "$PIPELINE_CONFIG" >/dev/null || die "unknown event '$ev'"
+  jq -cn --arg e "$ev" --arg k "$key" '{event_type: $e, client_payload: {issue_key: $k, source: "pipeline"}}' \
+    | gh api --method POST "repos/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY not set}/dispatches" --input - >/dev/null
+  echo "$key: dispatched $ev"
 }
 
 # gh_output NAME VALUE -> writes a step output when running in GitHub Actions
