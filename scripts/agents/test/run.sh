@@ -12,6 +12,7 @@ check() { if eval "$2" >/dev/null 2>&1; then pass=$((pass+1)); echo "ok   $1"; e
 
 good() {
   rm -rf specs; mkdir -p specs/SDLC-9
+  printf '# SDLC-9: x — Research\n\nFound AccountService.\n' > specs/SDLC-9/research.md
   printf '# SDLC-9: x — Functional\n\n| AC1 | a | b | c |\n' > specs/SDLC-9/functional.md
   printf '# SDLC-9: x — Technical\n\nUses AccountService.\n' > specs/SDLC-9/technical.md
   printf '# SDLC-9: x — Test plan\n\n| T | m | AC1 | bulk |\n' > specs/SDLC-9/test-plan.md
@@ -26,6 +27,7 @@ git checkout -q force-app/a.txt
 good; mkdir -p .github && echo x > .github/evil; check "new file outside specs fails"   '! bash "$check_script" SDLC-9'
 rm -rf .github
 good; rm specs/SDLC-9/technical.md;              check "missing file fails"             '! bash "$check_script" SDLC-9'
+good; rm specs/SDLC-9/research.md;               check "missing research fails"         '! bash "$check_script" SDLC-9'
 good; echo '{"workType":["x"],"riskLevel":"Huge","blockingQuestions":false,"summary":"s"}' > specs/SDLC-9/enrichment.json
                                                  check "bad risk level fails"           '! bash "$check_script" SDLC-9'
 good; echo '{nope' > specs/SDLC-9/enrichment.json; check "invalid JSON fails"           '! bash "$check_script" SDLC-9'

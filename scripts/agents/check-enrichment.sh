@@ -17,7 +17,7 @@ while IFS= read -r line; do
 done < <(git status --porcelain --untracked-files=all)
 
 # 2. Required files exist and are not empty.
-for f in functional.md technical.md test-plan.md implementation-log.md enrichment.md enrichment.json; do
+for f in research.md functional.md technical.md test-plan.md implementation-log.md enrichment.md enrichment.json; do
   [[ -s "$dir/$f" ]] || p "missing or empty: $dir/$f"
 done
 
@@ -45,10 +45,10 @@ if [[ -s "$dir/enrichment.md" ]]; then
 fi
 
 # 5. Specs are filled in, not left as template placeholders.
-for f in functional.md technical.md test-plan.md; do
+for f in research.md functional.md technical.md test-plan.md; do
   [[ -s "$dir/$f" ]] || continue
   grep -q '<KEY>' "$dir/$f" && p "$f still contains the <KEY> placeholder"
-  grep -Eq '^<(One or two sentences|Two or three sentences|Main scenario)' "$dir/$f" && p "$f still contains template placeholder text"
+  grep -Eq '^<(One or two sentences|Two or three sentences|Main scenario|Restate the story)' "$dir/$f" && p "$f still contains template placeholder text"
 done
 [[ -s "$dir/functional.md" ]] && ! grep -q 'AC1' "$dir/functional.md" && p "functional.md has no AC1"
 [[ -s "$dir/test-plan.md" ]] && ! grep -q 'AC1' "$dir/test-plan.md" && p "test-plan.md does not map AC1 to a test"

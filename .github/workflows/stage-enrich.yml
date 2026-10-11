@@ -5,7 +5,8 @@ name: stage-enrich
 #   2. GitHub Copilot CLI writes specs/<KEY>/: functional, technical, test plan, implementation log,
 #      enrichment.md (the Jira summary) and enrichment.json (risk, blocking questions).
 #   3. Validate the output (one automatic retry with the findings), commit it to spec/<KEY>, open or update the spec PR.
-#   4. Jira: Description = Original Story + AI Enrichment, Spec PR and Risk Level set, comment,
+#   4. Jira: Description = Original Story + AI Enrichment, Research + Technical Specification attached as PDF
+#      (marked Draft), Spec PR and Risk Level set, comment,
 #      card -> Enrichment Completed (or Needs Info when the agent has blocking questions).
 # Rework: drag the card back to Enrichment In Progress (or answer in Needs Info and drag it back);
 # the agent revises its previous spec using the latest comments, and the Description section is replaced.
@@ -56,8 +57,11 @@ jobs:
             echo "Rework: the agent revises the spec from ${branch}." | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Install GitHub Copilot CLI
-        run: npm install -g "@github/copilot@$(jq -r .agents.copilotCliVersion config/pipeline.json)" && copilot --version
+      - name: Install GitHub Copilot CLI and the PDF renderer
+        run: |
+          npm install -g "@github/copilot@$(jq -r .agents.copilotCliVersion config/pipeline.json)" \
+                         "marked@$(jq -r .agents.markedVersion config/pipeline.json)"
+          copilot --version
 
       - name: Run the enrichment agent
         timeout-minutes: 35
@@ -129,6 +133,8 @@ jobs:
             "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${BRANCH}/"
           bash scripts/jira/set-field.sh "$KEY" specPr "$PR_URL"
           bash scripts/jira/set-field.sh "$KEY" riskLevel "$risk"
+          bash scripts/agents/attach-specs.sh "$KEY" "specs/${KEY}" "Draft – pending review" "$(jq -r .summary "$result")" \
+            || echo "::warning::Could not attach the spec PDFs; the spec is still in the PR."
           if [[ "$(jq -r .blockingQuestions "$result")" == "true" ]]; then
             bash scripts/jira/comment.sh "$KEY" "$(printf '%s\n' \
               "The enrichment agent needs answers before the spec can be finished. See Open Questions in the Description." \
