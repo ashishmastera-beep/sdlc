@@ -27,7 +27,7 @@ original='def htxt: ((.content // []) | map(.text // "") | join("") | ascii_down
             | (if (.[0].type == "heading" and (.[0] | htxt) == "original story") then .[1:] else . end)
             | {type: "doc", content: .} end;'
 
-jq -n --argjson i "$issue" --argjson c "$comments" --arg ac "$ac" --arg risk "$risk" "$flatten$original"'
+jq -n --argjson i "$issue" --argjson c "$comments" --arg ac "$ac" --arg risk "$risk" --arg prefix "$PIPELINE_COMMENT_PREFIX" "$flatten$original"'
 {
   key: $i.key,
   summary: $i.fields.summary,
@@ -38,5 +38,7 @@ jq -n --argjson i "$issue" --argjson c "$comments" --arg ac "$ac" --arg risk "$r
   riskLevel: ($i.fields[$risk].value // null),
   description: (($i.fields.description // "") | original | txt | gsub("^\\s+|\\s+$"; "")),
   acceptanceCriteria: (($i.fields[$ac] // "") | txt),
-  comments: [ $c.comments[] | {author: .author.displayName, created: .created, body: (.body | txt)} ]
+  # Only what people wrote: pipeline notes (prefixed, or older ones carrying a GitHub Actions run link) are left out.
+  comments: [ $c.comments[] | {author: .author.displayName, created: .created, body: (.body | txt)}
+              | select((.body | startswith($prefix)) or (.body | test("/actions/runs/[0-9]+")) | not) ]
 }'
