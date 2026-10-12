@@ -1,0 +1,6 @@
+{
+  "workType": ["Data model change", "Security change", "Configuration change"],
+  "riskLevel": "High",
+  "blockingQuestions": false,
+  "summary": "Add an optional restricted Contact preferred-contact-method picklist, grant sales representatives access through a dedicated permission set, and display it on their Contact layout."
+}
