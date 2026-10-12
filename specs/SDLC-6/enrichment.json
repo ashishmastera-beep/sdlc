@@ -1,0 +1,10 @@
+{
+  "workType": [
+    "Data model change",
+    "Configuration change",
+    "Security change"
+  ],
+  "riskLevel": "High",
+  "blockingQuestions": false,
+  "summary": "Add an optional Gold/Silver/Bronze Customer Tier picklist to Account, show it on all current Account layouts, and provide dedicated editor and read-only viewer field access."
+}
